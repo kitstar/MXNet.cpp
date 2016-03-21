@@ -23,7 +23,7 @@ public:
   Mlp()
     : ctx_cpu(Context(DeviceType::kCPU, 0)),
     ctx_dev(Context(DeviceType::kCPU, 0)) {}
-  void Run(std::string filePath) {
+  void Run(std::string filePath, std::string machine_list, std::string ps_per_machine) {
     /*define the symbolic net*/
     auto sym_x = Symbol::Variable("data");
     auto sym_label = Symbol::Variable("label");
@@ -62,17 +62,22 @@ public:
     double sTime = get_time();
 
     /*setup basic configs*/
-    KVStore kv("dist_sync");
-    if (kv.GetRole() != "worker") {
-      kv.RunServer();
-      return;
-    }
+    getchar();
+    std::string args = "dist_sync";
+    args += "#" + machine_list + "#" + ps_per_machine;
+    KVStore kv(args);
+    kv.RunServer();      
 
     std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
     (*opt).SetParam("momentum", 0.9)
       .SetParam("rescale_grad", 1.0 / (kv.GetNumWorkers() * batchSize));
       //.SetParam("clip_gradient", 10);
-    kv.SetOptimizer(std::move(opt));
+    
+    if (kv.GetRank() == 0)
+    {
+        kv.SetOptimizer(std::move(opt));
+    }
+    kv.Barrier();
 
     const int nMiniBatches = 1;
     bool init_kv = false;
@@ -200,13 +205,16 @@ private:
 
 };
 
-int main(int argc, char const *argv[]) {
-  CHECK_EQ(argc, 2);
-  Mlp mlp;
-  auto start = std::chrono::steady_clock::now();
-  mlp.Run(argv[1]);
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
-    (std::chrono::steady_clock::now() - start);
-  LG << "Training Duration = " << duration.count() / 1000.0 << "s";
-  return 0;
+int main(int argc, char const *argv[]) 
+{
+    LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;
+    
+    CHECK_EQ(argc, 4);
+    Mlp mlp;
+    auto start = std::chrono::steady_clock::now();
+    mlp.Run(argv[1], argv[2], argv[3]);
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+        (std::chrono::steady_clock::now() - start);
+    LG << "Training Duration = " << duration.count() / 1000.0 << "s";
+    return 0;
 }
