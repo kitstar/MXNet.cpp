@@ -62,11 +62,11 @@ public:
     double sTime = get_time();
 
     /*setup basic configs*/
-    getchar();
     std::string args = "dist_sync";
     args += "#" + machine_list + "#" + ps_per_machine;
     KVStore kv(args);
-    kv.RunServer();      
+    kv.RunServer();
+
 
     std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
     (*opt).SetParam("momentum", 0.9)

@@ -57,6 +57,7 @@ KVStore::KVStore(const std::string& name) {
 void KVStore::RunServer() {  
   private_::kvstore = this;
   CHECK_EQ(MXKVStoreRunServer(handle_, &private_::controller), 0);
+  Barrier();
 }
 
 void KVStore::Init(int key, const NDArray& val) {
