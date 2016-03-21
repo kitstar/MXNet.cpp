@@ -80,7 +80,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\example\mlp.cpp">
+    <ClCompile Include="train_ads.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
