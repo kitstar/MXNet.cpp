@@ -18,6 +18,8 @@ namespace cpp {
 class KVStore {
  public:
   explicit inline KVStore(const std::string& name = "local");
+  KVStore(const KVStore &) = delete;  
+  KVStore(KVStore &&);
   inline void RunServer();
   inline void Init(int key, const NDArray& val);
   inline void Init(const std::vector<int>& keys, const std::vector<NDArray>& vals);

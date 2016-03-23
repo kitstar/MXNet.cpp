@@ -11,210 +11,248 @@
 #include <thread>
 #include <numeric>
 #include <chrono>
+#include <windows.h>
 
 #include "MxNetCpp.h"
 #include "util.h"
 #include "data.h"
+#include "dmlc/io.h"
+#include "io/hdfs_filesys.h"
+
 using namespace std;
 using namespace mxnet::cpp;
 
+
 class Mlp {
 public:
-  Mlp()
-    : ctx_cpu(Context(DeviceType::kCPU, 0)),
-    ctx_dev(Context(DeviceType::kCPU, 0)) {}
-  void Run(std::string filePath, std::string machine_list, std::string ps_per_machine) {
-    /*define the symbolic net*/
-    auto sym_x = Symbol::Variable("data");
-    auto sym_label = Symbol::Variable("label");
-    auto w1 = Symbol::Variable("w1");
-    auto b1 = Symbol::Variable("b1");
-    auto w2 = Symbol::Variable("w2");
-    auto b2 = Symbol::Variable("b2");
-    auto w3 = Symbol::Variable("w3");
-    auto b3 = Symbol::Variable("b3");
-    
-    auto fc1 = FullyConnected("fc1", sym_x, w1, b1, 2048);
-    auto act1 = Activation("act1", fc1, ActivationActType::relu);
-    auto fc2 = FullyConnected("fc2", act1, w2, b2, 512);
-    auto act2 = Activation("act2", fc2, ActivationActType::relu);
-    auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
-    auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
+    Mlp()
+        : ctx_cpu(Context(DeviceType::kCPU, 0)),
+        ctx_dev(Context(DeviceType::kCPU, 0)) {}
+    void Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize) {
 
-    NDArray w1m(Shape(2048, 600), ctx_cpu), 
-      w2m(Shape(512, 2048), ctx_cpu), 
-      w3m(Shape(1, 512), ctx_cpu);
-    NDArray::SampleGaussian(0, 1, &w1m);
-    NDArray::SampleGaussian(0, 1, &w2m);
-    NDArray::SampleGaussian(0, 1, &w3m);
-    NDArray b1m(Shape(2048), ctx_cpu),
-      b2m(Shape(512), ctx_cpu),
-      b3m(Shape(1), ctx_cpu);
-    NDArray::SampleGaussian(0, 1, &b1m);
-    NDArray::SampleGaussian(0, 1, &b2m);
-    NDArray::SampleGaussian(0, 1, &b3m);
+        /*define the symbolic net*/
+        auto sym_x = Symbol::Variable("data");
+        auto sym_label = Symbol::Variable("label");
+        auto w1 = Symbol::Variable("w1");
+        auto b1 = Symbol::Variable("b1");
+        auto w2 = Symbol::Variable("w2");
+        auto b2 = Symbol::Variable("b2");
+        auto w3 = Symbol::Variable("w3");
+        auto b3 = Symbol::Variable("b3");
 
-    for (auto s : mlp.ListArguments()) {
-      LG << s;
-    }  
+        auto fc1 = FullyConnected("fc1", sym_x, w1, b1, 2048);
+        auto act1 = Activation("act1", fc1, ActivationActType::relu);
+        auto fc2 = FullyConnected("fc2", act1, w2, b2, 512);
+        auto act2 = Activation("act2", fc2, ActivationActType::relu);
+        auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
+        auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
 
-    double samplesProcessed = 0;
-    double sTime = get_time();
+        NDArray w1m(Shape(2048, 600), ctx_cpu),
+            w2m(Shape(512, 2048), ctx_cpu),
+            w3m(Shape(1, 512), ctx_cpu);
+        NDArray::SampleGaussian(0, 1, &w1m);
+        NDArray::SampleGaussian(0, 1, &w2m);
+        NDArray::SampleGaussian(0, 1, &w3m);
+        NDArray b1m(Shape(2048), ctx_cpu),
+            b2m(Shape(512), ctx_cpu),
+            b3m(Shape(1), ctx_cpu);
+        NDArray::SampleGaussian(0, 1, &b1m);
+        NDArray::SampleGaussian(0, 1, &b2m);
+        NDArray::SampleGaussian(0, 1, &b3m);
 
-    /*setup basic configs*/
-    std::string args = "dist_sync";
-    args += "#" + machine_list + "#" + ps_per_machine;
-    KVStore kv(args);
-    kv.RunServer();
-
-
-    std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
-    (*opt).SetParam("momentum", 0.9)
-      .SetParam("rescale_grad", 1.0 / (kv.GetNumWorkers() * batchSize));
-      //.SetParam("clip_gradient", 10);
-    
-    if (kv.GetRank() == 0)
-    {
-        kv.SetOptimizer(std::move(opt));
-    }
-    kv.Barrier();
-
-    const int nMiniBatches = 1;
-    bool init_kv = false;
-    filePath.insert(filePath.rfind('.'),
-      '-' + to_string(kv.GetNumWorkers()) + '-' + to_string(kv.GetRank()));
-    for (int ITER = 0; ITER < maxEpoch; ++ITER) {
-      DataReader dataReader(filePath, sampleSize, batchSize);
-      NDArray testData, testLabel;
-      int mb = 0;
-      while (!dataReader.Eof()) {
-        //if (mb++ >= nMiniBatches) break;
-        // read data in
-        auto r = dataReader.ReadBatch();
-        size_t nSamples = r.size() / (sampleSize * kv.GetNumWorkers());
-        samplesProcessed += nSamples;
-        CHECK(!r.empty());
-        vector<float> data_vec, label_vec;
-        for (int i = 0; i < nSamples; i++) {
-          float * rp = r.data() + sampleSize * i;
-          label_vec.push_back(*rp);
-          data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
+        for (auto s : mlp.ListArguments()) {
+            LG << s;
         }
-        r.clear();
-        r.shrink_to_fit();
 
-        const float *dptr = data_vec.data();
-        const float *lptr = label_vec.data();
-        NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
-          ctx_cpu, false);
-        NDArray labelArray =
-          NDArray(Shape(nSamples), ctx_cpu, false);
-        dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
-        labelArray.SyncCopyFromCPU(lptr, nSamples);
-        args_map["data"] = dataArray;
-        args_map["label"] = labelArray;
-        args_map["w1"] = w1m;
-        args_map["b1"] = b1m;
-        args_map["w2"] = w2m;
-        args_map["b2"] = b2m;
-        args_map["w3"] = w3m;
-        args_map["b3"] = b3m;
-        Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
-        std::vector<int> indices(exe->arg_arrays.size());
-        std::iota(indices.begin(), indices.end(), 0);
-        if (!init_kv) {
-          kv.Init(indices, exe->arg_arrays);
-          kv.Pull(indices, &exe->arg_arrays);
-          init_kv = true;
+        double samplesProcessed = 0;
+        double sTime = get_time();
+
+        /*setup basic configs*/
+        std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
+        (*opt).SetParam("momentum", 0.9)
+            .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batchSize));
+        //.SetParam("clip_gradient", 10);
+        if (kv->GetRank() == 0)
+        {
+            kv->SetOptimizer(std::move(opt));
         }
-        exe->Forward(true);
-        NDArray::WaitAll();
-        LG << "Iter " << ITER
-          << ", accuracy: " << Auc(exe->outputs[0], labelArray)
-          << "\t sample/s: " << samplesProcessed / (get_time() - sTime);
-        exe->Backward();
-        kv.Push(indices, exe->grad_arrays);
-        kv.Pull(indices, &exe->arg_arrays);
-        //exe->UpdateAll(&opt, learning_rate);
-        NDArray::WaitAll();
-        delete exe;
-      }
+        kv->Barrier();
 
-      //LG << "Iter " << ITER
-      //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
+        const int nMiniBatches = 1;
+        bool init_kv = false;
+        for (int ITER = 0; ITER < maxEpoch; ++ITER) {
+            NDArray testData, testLabel;
+            int mb = 0;
+            DataReader dataReader(stream.get(), streamSize,
+                sampleSize, kv->GetRank(), kv->GetNumWorkers(), batchSize);
+            size_t totalSamples = 0;
+            while (!dataReader.Eof()) {
+                //if (mb++ >= nMiniBatches) break;
+                // read data in
+                auto r = dataReader.ReadBatch();
+                size_t nSamples = r.size() / sampleSize;
+                totalSamples += nSamples;
+                vector<float> data_vec, label_vec;
+                samplesProcessed += nSamples;
+                CHECK(!r.empty());
+                for (int i = 0; i < nSamples; i++) {
+                    float * rp = r.data() + sampleSize * i;
+                    label_vec.push_back(*rp);
+                    data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
+                }
+                r.clear();
+                r.shrink_to_fit();
+
+                const float *dptr = data_vec.data();
+                const float *lptr = label_vec.data();
+                NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
+                    ctx_cpu, false);
+                NDArray labelArray =
+                    NDArray(Shape(nSamples), ctx_cpu, false);
+                dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
+                labelArray.SyncCopyFromCPU(lptr, nSamples);
+                args_map["data"] = dataArray;
+                args_map["label"] = labelArray;
+                args_map["w1"] = w1m;
+                args_map["b1"] = b1m;
+                args_map["w2"] = w2m;
+                args_map["b2"] = b2m;
+                args_map["w3"] = w3m;
+                args_map["b3"] = b3m;
+                Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
+                std::vector<int> indices(exe->arg_arrays.size());
+                std::iota(indices.begin(), indices.end(), 0);
+                if (!init_kv) {
+                    kv->Init(indices, exe->arg_arrays);
+                    kv->Pull(indices, &exe->arg_arrays);
+                    init_kv = true;
+                }
+                exe->Forward(true);
+                NDArray::WaitAll();
+                LG << "Iter " << ITER
+                    << ", accuracy: " << Auc(exe->outputs[0], labelArray)
+                    << "\t sample/s: " << samplesProcessed / (get_time() - sTime);
+                exe->Backward();
+                kv->Push(indices, exe->grad_arrays);
+                kv->Pull(indices, &exe->arg_arrays);
+                //exe->UpdateAll(&opt, learning_rate);
+                NDArray::WaitAll();
+                delete exe;
+            }
+            LG << "Total samples: " << totalSamples;
+
+            //LG << "Iter " << ITER
+            //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
+        }
     }
-  }
 
 private:
-  Context ctx_cpu;
-  Context ctx_dev;
-  map<string, NDArray> args_map;
-  const static int batchSize = 300;
-  const static int sampleSize = 601;
-  const static int maxEpoch = 5;
-  float learning_rate = 0.01;
-  float weight_decay = 1e-5;
+    Context ctx_cpu;
+    Context ctx_dev;
+    map<string, NDArray> args_map;
+    const static int batchSize = 300;
+    const static int sampleSize = 601;
+    const static int maxEpoch = 5;
+    float learning_rate = 0.01;
+    float weight_decay = 1e-5;
 
-  float ValAccuracy(Symbol mlp, 
-    const NDArray& samples, 
-    const NDArray& labels) {
-    size_t nSamples = samples.GetShape()[0];
-    size_t nCorrect = 0;
-    size_t startIndex = 0;
-    args_map["data"] = samples;
-    args_map["label"] = labels;
+    float ValAccuracy(Symbol mlp,
+        const NDArray& samples,
+        const NDArray& labels) {
+        size_t nSamples = samples.GetShape()[0];
+        size_t nCorrect = 0;
+        size_t startIndex = 0;
+        args_map["data"] = samples;
+        args_map["label"] = labels;
 
-    Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
-    exe->Forward(false);
-    const auto &out = exe->outputs;
-    NDArray result = out[0].Copy(ctx_cpu);
-    result.WaitToRead();
-    const mx_float *pResult = result.GetData();
-    const mx_float *pLabel = labels.GetData();
-    for (int i = 0; i < nSamples; ++i) {
-      float label = pLabel[i];
-      int cat_num = result.GetShape()[1];
-      float p_label = 0, max_p = pResult[i * cat_num];
-      for (int j = 0; j < cat_num; ++j) {
-        float p = pResult[i * cat_num + j];
-        if (max_p < p) {
-          p_label = j;
-          max_p = p;
+        Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
+        exe->Forward(false);
+        const auto &out = exe->outputs;
+        NDArray result = out[0].Copy(ctx_cpu);
+        result.WaitToRead();
+        const mx_float *pResult = result.GetData();
+        const mx_float *pLabel = labels.GetData();
+        for (int i = 0; i < nSamples; ++i) {
+            float label = pLabel[i];
+            int cat_num = result.GetShape()[1];
+            float p_label = 0, max_p = pResult[i * cat_num];
+            for (int j = 0; j < cat_num; ++j) {
+                float p = pResult[i * cat_num + j];
+                if (max_p < p) {
+                    p_label = j;
+                    max_p = p;
+                }
+            }
+            if (label == p_label) nCorrect++;
         }
-      }
-      if (label == p_label) nCorrect++;
+        delete exe;
+
+        return nCorrect * 1.0 / nSamples;
     }
-    delete exe;
-    
-    return nCorrect * 1.0 / nSamples;
-  }
-  
-  float Auc(const NDArray& result, const NDArray& labels) {
-    result.WaitToRead();
-    const mx_float *pResult = result.GetData();
-    const mx_float *pLabel = labels.GetData();
-    int nSamples = labels.GetShape()[0];
-    size_t nCorrect = 0;
-    for (int i = 0; i < nSamples; ++i) {
-      float label = pLabel[i];
-      float p_label = pResult[i];
-      if (label == (p_label >= 0.5)) nCorrect++;
+
+    float Auc(const NDArray& result, const NDArray& labels) {
+        result.WaitToRead();
+        const mx_float *pResult = result.GetData();
+        const mx_float *pLabel = labels.GetData();
+        int nSamples = labels.GetShape()[0];
+        size_t nCorrect = 0;
+        for (int i = 0; i < nSamples; ++i) {
+            float label = pLabel[i];
+            float p_label = pResult[i];
+            if (label == (p_label >= 0.5)) nCorrect++;
+        }
+        return nCorrect * 1.0 / nSamples;
     }
-    return nCorrect * 1.0 / nSamples;
-  }
 
 };
 
-int main(int argc, char const *argv[]) 
-{
-    LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;
-    
+void init_env() {
+    std::string entry = "CLASSPATH=";    
+        
+    // Init classpath
+    char buf[129];
+    FILE* output = _popen("hadoop classpath --glob", "r");
+    while (true)
+    {
+        size_t len = fread(buf, sizeof(char), sizeof(buf) - 1, output);
+        if (len == 0)
+            break;
+        buf[len] = 0;
+        entry += buf;
+    }
+    fclose(output);
+    entry.pop_back(); // Remove line ending
+    _putenv(entry.c_str());
+
+    // LG << entry;                        
+}
+
+
+int main(int argc, const char *argv[])
+{    
+    LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;    
     CHECK_EQ(argc, 4);
+
+    init_env();
+
+    std::string args = "dist_sync#";
+    args += argv[2];
+    args += '#';
+    args += argv[3];
+        
+    KVStore *kv = new KVStore(args);
+    kv->RunServer();
+    
+    using namespace dmlc::io;
+    HDFSFileSystem* hdfs = HDFSFileSystem::GetInstance();
+    URI dataPath(argv[1]);
+    size_t size = hdfs->GetPathInfo(dataPath).size;
+    std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
+
     Mlp mlp;
     auto start = std::chrono::steady_clock::now();
-    mlp.Run(argv[1], argv[2], argv[3]);
+    mlp.Run(kv, std::move(stream), size);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now() - start);
     LG << "Training Duration = " << duration.count() / 1000.0 << "s";
-    return 0;
 }
