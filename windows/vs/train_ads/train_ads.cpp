@@ -144,6 +144,9 @@ public:
             //LG << "Iter " << ITER
             //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
         }
+
+        if (kv->GetRank() == 0) output_model();
+        kv->Barrier();
     }
 
 private:
@@ -155,6 +158,23 @@ private:
     const static int maxEpoch = 5;
     float learning_rate = 0.01;
     float weight_decay = 1e-5;
+
+    void output_model()
+    {
+        std::ofstream modelout("mxnet_model.txt", std::ios::binary);
+
+        for (auto it = args_map.begin(); it != args_map.end(); ++it)
+        {
+            int Bsize = 1;
+            for (auto shape : it->second.GetShape())
+            {
+                Bsize *= shape;
+            }
+
+            modelout.write((char*)it->second.GetData(), sizeof(float) * Bsize);
+        }
+        modelout.close();
+    }
 
     float ValAccuracy(Symbol mlp,
         const NDArray& samples,
