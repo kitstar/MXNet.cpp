@@ -63,7 +63,6 @@ KVStore::KVStore(KVStore &&kv) {
 void KVStore::RunServer() {  
   private_::kvstore = this;
   CHECK_EQ(MXKVStoreRunServer(handle_, &private_::controller), 0);
-  Barrier();
 }
 
 void KVStore::Init(int key, const NDArray& val) {

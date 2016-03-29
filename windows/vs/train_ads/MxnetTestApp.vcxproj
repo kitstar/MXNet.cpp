@@ -39,6 +39,7 @@
     <ClInclude Include="..\..\..\include\symbol.h" />
     <ClInclude Include="..\..\..\include\symbol.hpp" />
     <ClInclude Include="data.h" />
+    <ClInclude Include="train_ads.h" />
     <ClInclude Include="util.h" />
   </ItemGroup>
   <ItemGroup>

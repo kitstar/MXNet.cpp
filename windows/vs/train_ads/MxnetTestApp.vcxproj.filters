@@ -78,6 +78,9 @@
     <ClInclude Include="..\..\..\include\kvstore.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="train_ads.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="train_ads.cpp">

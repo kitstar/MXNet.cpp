@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <condition_variable>
 #include <fstream>
 #include <mutex>
@@ -68,7 +69,7 @@ private:
     void IOThread() {
         std::unique_lock<std::mutex> l(mutex_);
         size_t recordByteSize = sizeof(float)*recordSize_;
-        int totalRecords = streamSize_ / recordByteSize;
+        auto totalRecords = streamSize_ / recordByteSize;
         int recordCount = totalRecords / nsplit_;
         stream_->Seek(recordCount * recordByteSize * rank_);
         if (rank_ == nsplit_ - 1 && totalRecords % nsplit_ != 0) {
@@ -90,7 +91,7 @@ private:
                 }
                 if (reset_ || exit_) break;
                 buffer_.resize(recordSize_ * batchSize_);
-                size_t bytesToRead = recordByteSize * min(batchSize_, recordCount);
+                size_t bytesToRead = recordByteSize * std::min(batchSize_, recordCount);
                 // LG << "Bytes to read = " << bytesToRead;
                 size_t bytesRead = stream_->Read(buffer_.data(), bytesToRead);
                 if (bytesRead == 0) {
