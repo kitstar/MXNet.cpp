@@ -16,8 +16,7 @@
 #include "MxNetCpp.h"
 #include "util.h"
 #include "data.h"
-#include "dmlc/io.h"
-#include "io/hdfs_filesys.h"
+#include "io/filesys.h"
 
 using namespace std;
 using namespace mxnet::cpp;
@@ -264,8 +263,8 @@ int main(int argc, const char *argv[])
     kv->RunServer();
     
     using namespace dmlc::io;
-    HDFSFileSystem* hdfs = HDFSFileSystem::GetInstance();
     URI dataPath(argv[1]);
+    auto hdfs = FileSystem::GetInstance(dataPath);    
     size_t size = hdfs->GetPathInfo(dataPath).size;
     std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
 
