@@ -60,11 +60,20 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
 
     const int nMiniBatches = 1;
     bool init_kv = false;
+    
+    int my_rank = 0;
+    int total_rank = 1;
+    if (!is_local_data)
+    {
+        my_rank = kv->GetRank();
+        total_rank = kv->GetNumWorkers();
+    }
+
     for (int ITER = 0; ITER < maxEpoch; ++ITER) {
         NDArray testData, testLabel;
         int mb = 0;
         DataReader dataReader(stream.get(), streamSize,
-            sampleSize, kv->GetRank(), kv->GetNumWorkers(), batchSize);
+            sampleSize, my_rank, total_rank, batchSize);
         size_t totalSamples = 0;
         while (!dataReader.Eof()) {
             //if (mb++ >= nMiniBatches) break;
@@ -216,11 +225,11 @@ int main(int argc, const char *argv[])
 
     using namespace dmlc::io;
     URI dataPath(argv[1]);
-    auto hdfs = FileSystem::GetInstance(dataPath);
+    auto hdfs = FileSystem::GetInstance(dataPath);    
     size_t size = hdfs->GetPathInfo(dataPath).size;
     std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
 
-    Mlp mlp;
+    Mlp mlp(dataPath.protocol == "file://");
     auto start = std::chrono::steady_clock::now();
     mlp.Run(kv, std::move(stream), size);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>

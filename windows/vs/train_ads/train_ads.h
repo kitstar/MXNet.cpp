@@ -36,9 +36,10 @@ void init_env()
 class Mlp 
 {
 public:
-    Mlp() : ctx_cpu(
-        mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
-        ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)) { }
+    Mlp(bool _is_local) : ctx_cpu(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
+        ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
+        is_local_data(_is_local)
+    { }
     
     void Run(mxnet::cpp::KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize);
 
@@ -61,5 +62,6 @@ private:
     mxnet::cpp::Context ctx_dev;
     std::map<std::string, mxnet::cpp::NDArray> args_map;
     float learning_rate = 0.01;
-    float weight_decay = 1e-5;         
+    float weight_decay = 1e-5;
+    bool is_local_data;
 };
