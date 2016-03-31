@@ -229,7 +229,7 @@ int main(int argc, const char *argv[])
     size_t size = hdfs->GetPathInfo(dataPath).size;
     std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
 
-    Mlp mlp(dataPath.protocol == "file://");
+    Mlp mlp(dataPath.protocol.empty());
     auto start = std::chrono::steady_clock::now();
     mlp.Run(kv, std::move(stream), size);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
