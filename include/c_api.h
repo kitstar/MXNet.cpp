@@ -10,6 +10,8 @@
 #define MXNET_EXTERN_C extern "C"
 #endif
 
+#include <stdint.h>
+
 /*! \brief MXNET_DLL prefix for windows */
 #ifdef _WIN32
 #ifdef MXNET_EXPORTS
@@ -1103,6 +1105,34 @@ MXNET_DLL int MXKVStoreGetType(KVStoreHandle handle,
  */
 MXNET_DLL int MXKVStoreGetRank(KVStoreHandle handle,
                                int *ret);
+
+/**
+ * \brief AllReduce
+ */
+
+#define ALLREDUCE_IN_PLACE ((void *)-1)
+
+#define ALLREDUCE_OP_SUM 0
+#define ALLREDUCE_OP_UDR 1
+#define ALLREDUCE_OP_NUM 2
+
+#define ALLREDUCE_TYPE_INT32	0
+#define ALLREDUCE_TYPE_UINT32	1
+#define ALLREDUCE_TYPE_INT64	2
+#define ALLREDUCE_TYPE_UINT64	3
+#define ALLREDUCE_TYPE_FLOAT	4
+#define ALLREDUCE_TYPE_DOUBLE	5
+#define ALLREDUCE_TYPE_NUM		6
+
+MXNET_DLL void MXKVAllReduce(
+	KVStoreHandle handle,
+	const void *sendbuf,
+	void *recvbuf,
+	size_t elemcount,
+	size_t elemsize,
+	int elemtype,
+	int op
+	);
 
 /**
  * \brief return The number of nodes in this group, which is

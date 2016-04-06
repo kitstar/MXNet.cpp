@@ -7,8 +7,15 @@ using namespace std;
 using namespace mxnet::cpp;
 
 
-void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize)
+void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize, bool sync)
 {
+	int my_rank = 0;
+	int total_rank = 1;
+	if (!is_local_data)
+	{
+		my_rank = kv->GetRank();
+		total_rank = kv->GetNumWorkers();
+	}
 
     /*define the symbolic net*/
     auto sym_x = Symbol::Variable("data");
@@ -27,18 +34,53 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
     auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
     auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
 
-    NDArray w1m(Shape(2048, 600), ctx_cpu),
-        w2m(Shape(512, 2048), ctx_cpu),
-        w3m(Shape(1, 512), ctx_cpu);
-    NDArray::SampleGaussian(0, 1, &w1m);
-    NDArray::SampleGaussian(0, 1, &w2m);
-    NDArray::SampleGaussian(0, 1, &w3m);
-    NDArray b1m(Shape(2048), ctx_cpu),
-        b2m(Shape(512), ctx_cpu),
-        b3m(Shape(1), ctx_cpu);
-    NDArray::SampleGaussian(0, 1, &b1m);
-    NDArray::SampleGaussian(0, 1, &b2m);
-    NDArray::SampleGaussian(0, 1, &b3m);
+	NDArray w1m(Shape(2048, 600), ctx_cpu),
+		w2m(Shape(512, 2048), ctx_cpu),
+		w3m(Shape(1, 512), ctx_cpu);
+
+	NDArray b1m(Shape(2048), ctx_cpu),
+		b2m(Shape(512), ctx_cpu),
+		b3m(Shape(1), ctx_cpu);
+
+	if (sync)
+	{
+		if (my_rank == 0)
+		{
+			NDArray::SampleGaussian(0, 1, &w1m);
+			NDArray::SampleGaussian(0, 1, &w2m);
+			NDArray::SampleGaussian(0, 1, &w3m);
+
+			NDArray::SampleGaussian(0, 1, &b1m);
+			NDArray::SampleGaussian(0, 1, &b2m);
+			NDArray::SampleGaussian(0, 1, &b3m);
+		}
+		else
+		{
+			std::vector<mx_float> w1mdata(2048 * 600, 0);
+			w1m.SyncCopyFromCPU(w1mdata);
+			std::vector<mx_float> w2mdata(512 * 2048, 0);
+			w2m.SyncCopyFromCPU(w2mdata);
+			std::vector<mx_float> w3mdata(512, 0);
+			w3m.SyncCopyFromCPU(w3mdata);
+
+			std::vector<mx_float> b1mdata(2048, 0);
+			b1m.SyncCopyFromCPU(b1mdata);
+			std::vector<mx_float> b2mdata(512);
+			b2m.SyncCopyFromCPU(b2mdata);
+			std::vector<mx_float> b3mdata(1, 0);
+			b3m.SyncCopyFromCPU(b3mdata);
+		}
+	}
+	else
+	{
+		NDArray::SampleGaussian(0, 1, &w1m);
+		NDArray::SampleGaussian(0, 1, &w2m);
+		NDArray::SampleGaussian(0, 1, &w3m);
+
+		NDArray::SampleGaussian(0, 1, &b1m);
+		NDArray::SampleGaussian(0, 1, &b2m);
+		NDArray::SampleGaussian(0, 1, &b3m);
+	}
 
     for (auto s : mlp.ListArguments()) {
         LG << s;
@@ -52,7 +94,7 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
     (*opt).SetParam("momentum", 0.9)
         .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batchSize));
     //.SetParam("clip_gradient", 10);
-    if (kv->GetRank() == 0)
+    if (kv->GetRank() == 0 && !sync)
     {
         kv->SetOptimizer(std::move(opt));
     }
@@ -60,14 +102,6 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
 
     const int nMiniBatches = 1;
     bool init_kv = false;
-    
-    int my_rank = 0;
-    int total_rank = 1;
-    if (!is_local_data)
-    {
-        my_rank = kv->GetRank();
-        total_rank = kv->GetNumWorkers();
-    }
 
     for (int ITER = 0; ITER < maxEpoch; ++ITER) {
         NDArray testData, testLabel;
@@ -107,13 +141,29 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
             args_map["w2"] = w2m;
             args_map["b2"] = b2m;
             args_map["w3"] = w3m;
-            args_map["b3"] = b3m;
+            args_map["b3"] = b3m;						
+
             Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
             std::vector<int> indices(exe->arg_arrays.size());
             std::iota(indices.begin(), indices.end(), 0);
             if (!init_kv) {
-                kv->Init(indices, exe->arg_arrays);
-                kv->Pull(indices, &exe->arg_arrays);
+				if (sync)
+				{
+					std::vector<NDArray> parameters;
+					parameters.clear();
+					parameters.push_back(w1m);
+					parameters.push_back(w2m);
+					parameters.push_back(w3m);
+					parameters.push_back(b1m);
+					parameters.push_back(b2m);
+					parameters.push_back(b3m);
+					kv->AllReduce(&parameters);
+				}
+				else
+				{
+					kv->Init(indices, exe->arg_arrays);
+					kv->Pull(indices, &exe->arg_arrays);
+				}
                 init_kv = true;
             }
             exe->Forward(true);
@@ -122,8 +172,21 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
                 << ", accuracy: " << Auc(exe->outputs[0], labelArray)
                 << "\t sample/s: " << samplesProcessed / (get_time() - sTime);
             exe->Backward();
-            kv->Push(indices, exe->grad_arrays);
-            kv->Pull(indices, &exe->arg_arrays);
+			if (sync)
+			{
+				kv->AllReduce(&exe->grad_arrays);
+				for (size_t i = 0; i < indices.size(); i++)
+				{
+					exe->grad_arrays[i].WaitToRead();
+					exe->arg_arrays[i].WaitToWrite();
+					opt->Update(indices[i], exe->arg_arrays[i], exe->grad_arrays[i]);					
+				}
+			}
+			else
+			{
+				kv->Push(indices, exe->grad_arrays);
+				kv->Pull(indices, &exe->arg_arrays);
+			}
             //exe->UpdateAll(&opt, learning_rate);
             NDArray::WaitAll();
             delete exe;
@@ -213,14 +276,14 @@ int main(int argc, const char *argv[])
     LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;
     CHECK_EQ(argc, 4);
 
-    init_env();
+    //init_env();
 
     std::string args = "dist_sync#";
     args += argv[2];
     args += '#';
     args += argv[3];
-
-    KVStore *kv = new KVStore(args);
+	
+	KVStore *kv = new KVStore(args);
     kv->RunServer();
 
     using namespace dmlc::io;
@@ -231,7 +294,7 @@ int main(int argc, const char *argv[])
 
     Mlp mlp(dataPath.protocol.empty());
     auto start = std::chrono::steady_clock::now();
-    mlp.Run(kv, std::move(stream), size);
+    mlp.Run(kv, std::move(stream), size, false);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now() - start);
     LG << "Training Duration = " << duration.count() / 1000.0 << "s";

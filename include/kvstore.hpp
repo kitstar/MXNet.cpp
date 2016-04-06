@@ -119,6 +119,21 @@ void KVStore::Pull(const std::vector<int>& keys, std::vector<NDArray>* outs, int
       out_handles.data(), priority), 0);
 }
 
+void KVStore::AllReduce(std::vector<NDArray>* vals)
+{
+	for (size_t i = 0; i < vals->size(); i++)
+	{
+		std::vector<mx_uint> shape = (*vals)[i].GetShape();
+		size_t size = 1;
+		for (size_t j = 0; j < shape.size(); j++)
+		{
+			size *= shape[j];
+		}
+		(*vals)[i].WaitToRead();
+		MXKVAllReduce(handle_, ALLREDUCE_IN_PLACE, (void *)((*vals)[i].GetData()), size, sizeof(mx_float), ALLREDUCE_TYPE_DOUBLE, ALLREDUCE_OP_SUM);
+	}
+}
+
 namespace private_ {
   extern "C"
   void updater(int key, NDArrayHandle recv, NDArrayHandle local,

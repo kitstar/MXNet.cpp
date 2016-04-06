@@ -41,7 +41,7 @@ public:
         is_local_data(_is_local)
     { }
     
-    void Run(mxnet::cpp::KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize);
+    void Run(mxnet::cpp::KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize, bool sync);	
 
 protected:
     void output_model();
