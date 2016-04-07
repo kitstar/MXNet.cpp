@@ -34,13 +34,21 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
     auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
     auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
 
-	NDArray w1m(Shape(2048, 600), ctx_cpu),
-		w2m(Shape(512, 2048), ctx_cpu),
-		w3m(Shape(1, 512), ctx_cpu);
+	NDArray w1m(Shape(2048, 600), ctx_cpu, false),
+		w2m(Shape(512, 2048), ctx_cpu, false),
+		w3m(Shape(1, 512), ctx_cpu, false);
 
-	NDArray b1m(Shape(2048), ctx_cpu),
-		b2m(Shape(512), ctx_cpu),
-		b3m(Shape(1), ctx_cpu);
+	NDArray w1m_g(Shape(2048, 600), ctx_cpu, false),
+		w2m_g(Shape(512, 2048), ctx_cpu, false),
+		w3m_g(Shape(1, 512), ctx_cpu, false);
+
+	NDArray b1m(Shape(2048), ctx_cpu, false),
+		b2m(Shape(512), ctx_cpu, false),
+		b3m(Shape(1), ctx_cpu, false);
+
+	NDArray b1m_g(Shape(2048), ctx_cpu, false),
+		b2m_g(Shape(512), ctx_cpu, false),
+		b3m_g(Shape(1), ctx_cpu, false);
 
 	if (sync)
 	{
@@ -69,7 +77,7 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
 			b2m.SyncCopyFromCPU(b2mdata);
 			std::vector<mx_float> b3mdata(1, 0);
 			b3m.SyncCopyFromCPU(b3mdata);
-		}
+		}		
 	}
 	else
 	{
@@ -103,6 +111,35 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
     const int nMiniBatches = 1;
     bool init_kv = false;
 
+	in_args.resize(8);
+	arg_grad_store.resize(8);
+	grad_req_type.resize(8);
+
+	in_args[1] = w1m;
+	in_args[2] = b1m;
+	in_args[3] = w2m;
+	in_args[4] = b2m;
+	in_args[5] = w3m;
+	in_args[6] = b3m;
+
+	arg_grad_store[0] = NDArray();
+	arg_grad_store[1] = w1m_g;
+	arg_grad_store[2] = b1m_g;
+	arg_grad_store[3] = w2m_g;
+	arg_grad_store[4] = b2m_g;
+	arg_grad_store[5] = w3m_g;
+	arg_grad_store[6] = b3m_g;
+	arg_grad_store[7] = NDArray();
+
+	grad_req_type[0] = kNullOp;
+	grad_req_type[1] = kWriteTo;
+	grad_req_type[2] = kWriteTo;
+	grad_req_type[3] = kWriteTo;
+	grad_req_type[4] = kWriteTo;
+	grad_req_type[5] = kWriteTo;
+	grad_req_type[6] = kWriteTo;
+	grad_req_type[7] = kNullOp;
+
     for (int ITER = 0; ITER < maxEpoch; ++ITER) {
         NDArray testData, testLabel;
         int mb = 0;
@@ -134,16 +171,14 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
                 NDArray(Shape(nSamples), ctx_cpu, false);
             dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
             labelArray.SyncCopyFromCPU(lptr, nSamples);
-            args_map["data"] = dataArray;
-            args_map["label"] = labelArray;
-            args_map["w1"] = w1m;
-            args_map["b1"] = b1m;
-            args_map["w2"] = w2m;
-            args_map["b2"] = b2m;
-            args_map["w3"] = w3m;
-            args_map["b3"] = b3m;						
+			in_args[0] = dataArray;						
+			in_args[7] = labelArray;
 
-            Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
+			std::vector<NDArray> aux_states;
+
+			Executor* exe = new Executor(mlp, ctx_dev, in_args, arg_grad_store,
+				grad_req_type, aux_states);
+			
             std::vector<int> indices(exe->arg_arrays.size());
             std::iota(indices.begin(), indices.end(), 0);
             if (!init_kv) {
@@ -164,6 +199,7 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
 					kv->Init(indices, exe->arg_arrays);
 					kv->Pull(indices, &exe->arg_arrays);
 				}
+				NDArray::WaitAll();
                 init_kv = true;
             }
             exe->Forward(true);
@@ -177,9 +213,12 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
 				kv->AllReduce(&exe->grad_arrays);
 				for (size_t i = 0; i < indices.size(); i++)
 				{
-					exe->grad_arrays[i].WaitToRead();
-					exe->arg_arrays[i].WaitToWrite();
-					opt->Update(indices[i], exe->arg_arrays[i], exe->grad_arrays[i]);					
+					if (grad_req_type[i] != kNullOp)
+					{
+						exe->grad_arrays[i].WaitToRead();
+						exe->arg_arrays[i].WaitToWrite();
+						opt->Update(indices[i], exe->arg_arrays[i], exe->grad_arrays[i]);
+					}
 				}
 			}
 			else
@@ -281,7 +320,7 @@ int main(int argc, const char *argv[])
     std::string args = "dist_sync#";
     args += argv[2];
     args += '#';
-    args += argv[3];
+    args += argv[3];		
 	
 	KVStore *kv = new KVStore(args);
     kv->RunServer();
@@ -294,7 +333,7 @@ int main(int argc, const char *argv[])
 
     Mlp mlp(dataPath.protocol.empty());
     auto start = std::chrono::steady_clock::now();
-    mlp.Run(kv, std::move(stream), size, false);
+    mlp.Run(kv, std::move(stream), size, true);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now() - start);
     LG << "Training Duration = " << duration.count() / 1000.0 << "s";
