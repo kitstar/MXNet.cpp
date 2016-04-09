@@ -200,8 +200,8 @@ float Mlp::Auc(const NDArray& result, const NDArray& labels)
     for (int i = 0; i < nSamples; ++i) 
     {
         float label = pLabel[i];
-        float p_label = pResult[i];
-        if (label == (p_label >= 0.5)) nCorrect++;
+        float p_label = pResult[i];        
+        if (label == (p_label >= 0.5)) nCorrect++;        
     }
     return nCorrect * 1.0 / nSamples;
 }
@@ -213,9 +213,11 @@ int main(int argc, const char *argv[])
     LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;
     CHECK_EQ(argc, 4);
 
-    init_env();
+    // init_env();
 
-    std::string args = "dist_sync#";
+    getchar();
+    
+    std::string args = "dist_async#";
     args += argv[2];
     args += '#';
     args += argv[3];

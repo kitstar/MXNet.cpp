@@ -54,9 +54,9 @@ protected:
 
 
 private:
-    const static int batchSize = 300;
+    const static int batchSize = 3072;
     const static int sampleSize = 601;
-    const static int maxEpoch = 5;
+    const static int maxEpoch = 1;
     
     mxnet::cpp::Context ctx_cpu;
     mxnet::cpp::Context ctx_dev;
