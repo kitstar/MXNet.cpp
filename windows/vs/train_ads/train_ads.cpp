@@ -212,21 +212,22 @@ int main(int argc, const char *argv[])
 {
     LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;
     CHECK_EQ(argc, 4);
-
-    // init_env();
-
-    getchar();
     
     std::string args = "dist_async#";
     args += argv[2];
     args += '#';
     args += argv[3];
 
+    LG << "Train Ads running setting: " << args << "." << endl;
     KVStore *kv = new KVStore(args);
     kv->RunServer();
 
     using namespace dmlc::io;
     URI dataPath(argv[1]);
+
+    if (dataPath.protocol == "hdfs://") init_env();
+
+
     auto hdfs = FileSystem::GetInstance(dataPath);    
     size_t size = hdfs->GetPathInfo(dataPath).size;
     std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
