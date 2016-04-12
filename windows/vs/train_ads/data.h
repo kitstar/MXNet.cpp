@@ -64,12 +64,15 @@ public:
         return r;
     }
 
+    inline int recordCount() { return recordCount_; }
+
 private:
     void IOThread() {
         std::unique_lock<std::mutex> l(mutex_);
         size_t recordByteSize = sizeof(float)*recordSize_;
         int totalRecords = streamSize_ / recordByteSize;
-        int recordCount = totalRecords / nsplit_;
+        recordCount_ = totalRecords / nsplit_;
+        int recordCount = recordCount_;
         stream_->Seek(recordCount * recordByteSize * rank_);
         if (rank_ == nsplit_ - 1 && totalRecords % nsplit_ != 0) {
             recordCount += totalRecords % nsplit_;
@@ -79,7 +82,7 @@ private:
         LG << "record count = " << recordCount;
         LG << "Nsplit = " << nsplit_;
         LG << "rank = " << rank_;
-        LG << "Seeking offset = " << (recordCount * recordByteSize * rank_);
+        LG << "Seeking offset = " << (recordCount  * recordByteSize * rank_);
         while (!exit_) {
             eof_ = false;
             reset_ = false;
@@ -120,5 +123,6 @@ private:
     const int rank_;
     const int nsplit_;
     const int batchSize_;
+    int recordCount_;
     dmlc::SeekStream* stream_;
 };

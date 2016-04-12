@@ -135,7 +135,8 @@ public:
                 NDArray::WaitAll();
                 LG << "Iter " << ITER
                     << ", accuracy: " << Auc(exe->outputs[0], labelArray)
-                    << "\t sample/s: " << samplesProcessed / (get_time() - sTime) << "\t Processed Sample: [" << samplesProcessed << "]";
+                    << "\t sample/s: " << samplesProcessed / (get_time() - sTime) 
+                    << "\t Processing: [" << samplesProcessed * 100.0 / maxEpoch / dataReader.recordCount() << "%]";
                 exe->Backward();
                 kv->Push(indices, exe->grad_arrays);
                 kv->Pull(indices, &exe->arg_arrays);
