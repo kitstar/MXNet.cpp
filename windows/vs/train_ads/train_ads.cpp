@@ -24,10 +24,10 @@ using namespace mxnet::cpp;
 
 class Mlp {
 public:
-    Mlp()
+    Mlp(bool _is_local_data)
         : ctx_cpu(Context(DeviceType::kCPU, 0)),
-        ctx_dev(Context(DeviceType::kCPU, 0)) {}
-    void Run(KVStore kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize, bool isLocal) {
+        ctx_dev(Context(DeviceType::kCPU, 0)), is_local(_is_local_data) {}
+    size_t Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize) {
 
         /*define the symbolic net*/
         auto sym_x = Symbol::Variable("data");
@@ -69,26 +69,27 @@ public:
         /*setup basic configs*/
         std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
         (*opt).SetParam("momentum", 0.9)
-            .SetParam("rescale_grad", 1.0 / (kv.GetNumWorkers() * batchSize));
+            .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batchSize));
         //.SetParam("clip_gradient", 10);
-        kv.SetOptimizer(std::move(opt));
+        kv->SetOptimizer(std::move(opt));
 
         int rank = 0;
         int total_count = 1;
-        if (isLocal == false)
+        if (is_local == false)
         {
-            rank = kv.GetRank();
-            total_count = kv.GetNumWorkers();
+            rank = kv->GetRank();
+            total_count = kv->GetNumWorkers();
         }
 
         const int nMiniBatches = 1;
         bool init_kv = false;
+        
         for (int ITER = 0; ITER < maxEpoch; ++ITER) {
             NDArray testData, testLabel;
             int mb = 0;
-            DataReader dataReader(stream.get(), streamSize,
-                sampleSize, rank, total_count, batchSize);
             size_t totalSamples = 0;
+            DataReader dataReader(stream.get(), streamSize,
+                sampleSize, rank, total_count, batchSize);            
             while (!dataReader.Eof()) {
                 //if (mb++ >= nMiniBatches) break;
                 // read data in
@@ -126,18 +127,18 @@ public:
                 std::vector<int> indices(exe->arg_arrays.size());
                 std::iota(indices.begin(), indices.end(), 0);
                 if (!init_kv) {
-                    kv.Init(indices, exe->arg_arrays);
-                    kv.Pull(indices, &exe->arg_arrays);
+                    kv->Init(indices, exe->arg_arrays);
+                    kv->Pull(indices, &exe->arg_arrays);
                     init_kv = true;
                 }
                 exe->Forward(true);
                 NDArray::WaitAll();
                 LG << "Iter " << ITER
                     << ", accuracy: " << Auc(exe->outputs[0], labelArray)
-                    << "\t sample/s: " << samplesProcessed / (get_time() - sTime);
+                    << "\t sample/s: " << samplesProcessed / (get_time() - sTime) << "\t Processed Sample: [" << samplesProcessed << "]";
                 exe->Backward();
-                kv.Push(indices, exe->grad_arrays);
-                kv.Pull(indices, &exe->arg_arrays);
+                kv->Push(indices, exe->grad_arrays);
+                kv->Pull(indices, &exe->arg_arrays);
                 //exe->UpdateAll(&opt, learning_rate);
                 NDArray::WaitAll();
                 delete exe;
@@ -148,7 +149,9 @@ public:
             //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
         }
 
-        kv.Barrier();
+        kv->Barrier();
+
+        return samplesProcessed;
     }
 
 private:
@@ -160,6 +163,7 @@ private:
     const static int maxEpoch = 1;
     float learning_rate = 0.01;
     float weight_decay = 1e-5;
+    bool is_local;
 
     float ValAccuracy(Symbol mlp,
         const NDArray& samples,
@@ -255,21 +259,21 @@ int main(int argc, char const *argv[]) {
     URI dataPath(argv[1]);
     init_env(dataPath.protocol == "hdfs://");
 
-    KVStore kv("dist_async");
-    if (kv.GetRole() != "worker") {
+    KVStore *kv = new KVStore("dist_async");
+    if (kv->GetRole() != "worker") {
         LG << "Running KVStore server";
-        kv.RunServer();
+        kv->RunServer();
         return 0;
-    }
+    }    
 
     FileSystem* fs = FileSystem::GetInstance(dataPath);
     size_t size = fs->GetPathInfo(dataPath).size;
     std::unique_ptr<dmlc::SeekStream> stream(fs->OpenForRead(dataPath, false));
 
-    Mlp mlp;
+    Mlp mlp(dataPath.protocol.empty());
     auto start = std::chrono::steady_clock::now();
-    mlp.Run(std::move(kv), std::move(stream), size, dataPath.protocol.empty());
+    auto sample_count = mlp.Run(kv, std::move(stream), size);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now() - start);
-    LG << "Training Duration = " << duration.count() / 1000.0 << "s";
+    LG << "Training Duration = " << duration.count() / 1000.0 << "s\tlocal machine speed: [" << sample_count * 1000.0 / duration.count() << "/s]\ttotal speed: [" << sample_count * 1000.0 * kv->GetNumWorkers() / duration.count() << "/s]";
 }
