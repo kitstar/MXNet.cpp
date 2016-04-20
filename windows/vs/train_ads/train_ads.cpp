@@ -27,7 +27,15 @@ public:
     Mlp(bool _is_local_data)
         : ctx_cpu(Context(DeviceType::kCPU, 0)),
         ctx_dev(Context(DeviceType::kCPU, 0)), is_local(_is_local_data) {}
-    size_t Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize) {
+    size_t Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize) 
+    {
+        int my_rank = 0;
+        int total_count = 1;
+        if (is_local == false)
+        {
+            my_rank = kv->GetRank();
+            total_count = kv->GetNumWorkers();
+        }
 
         /*define the symbolic net*/
         auto sym_x = Symbol::Variable("data");
@@ -46,18 +54,61 @@ public:
         auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
         auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
 
-        NDArray w1m(Shape(2048, 600), ctx_cpu),
-            w2m(Shape(512, 2048), ctx_cpu),
-            w3m(Shape(1, 512), ctx_cpu);
-        NDArray::SampleGaussian(0, 1, &w1m);
-        NDArray::SampleGaussian(0, 1, &w2m);
-        NDArray::SampleGaussian(0, 1, &w3m);
-        NDArray b1m(Shape(2048), ctx_cpu),
-            b2m(Shape(512), ctx_cpu),
-            b3m(Shape(1), ctx_cpu);
-        NDArray::SampleGaussian(0, 1, &b1m);
-        NDArray::SampleGaussian(0, 1, &b2m);
-        NDArray::SampleGaussian(0, 1, &b3m);
+        NDArray w1m(Shape(2048, 600), ctx_cpu, false),
+            w2m(Shape(512, 2048), ctx_cpu, false),
+            w3m(Shape(1, 512), ctx_cpu, false);
+
+        NDArray w1m_g(Shape(2048, 600), ctx_cpu, false),
+            w2m_g(Shape(512, 2048), ctx_cpu, false),
+            w3m_g(Shape(1, 512), ctx_cpu, false);
+
+        NDArray b1m(Shape(2048), ctx_cpu, false),
+            b2m(Shape(512), ctx_cpu, false),
+            b3m(Shape(1), ctx_cpu, false);
+
+        NDArray b1m_g(Shape(2048), ctx_cpu, false),
+            b2m_g(Shape(512), ctx_cpu, false),
+            b3m_g(Shape(1), ctx_cpu, false);
+
+        if (true) // TODO: fix for (sync mode == true)
+        {
+            if (my_rank == 0)
+            {
+                NDArray::SampleGaussian(0, 1, &w1m);
+                NDArray::SampleGaussian(0, 1, &w2m);
+                NDArray::SampleGaussian(0, 1, &w3m);
+
+                NDArray::SampleGaussian(0, 1, &b1m);
+                NDArray::SampleGaussian(0, 1, &b2m);
+                NDArray::SampleGaussian(0, 1, &b3m);
+            }
+            else
+            {
+                std::vector<mx_float> w1mdata(2048 * 600, 0);
+                w1m.SyncCopyFromCPU(w1mdata);
+                std::vector<mx_float> w2mdata(512 * 2048, 0);
+                w2m.SyncCopyFromCPU(w2mdata);
+                std::vector<mx_float> w3mdata(512, 0);
+                w3m.SyncCopyFromCPU(w3mdata);
+
+                std::vector<mx_float> b1mdata(2048, 0);
+                b1m.SyncCopyFromCPU(b1mdata);
+                std::vector<mx_float> b2mdata(512);
+                b2m.SyncCopyFromCPU(b2mdata);
+                std::vector<mx_float> b3mdata(1, 0);
+                b3m.SyncCopyFromCPU(b3mdata);
+            }
+        }
+        else
+        {
+            NDArray::SampleGaussian(0, 1, &w1m);
+            NDArray::SampleGaussian(0, 1, &w2m);
+            NDArray::SampleGaussian(0, 1, &w3m);
+
+            NDArray::SampleGaussian(0, 1, &b1m);
+            NDArray::SampleGaussian(0, 1, &b2m);
+            NDArray::SampleGaussian(0, 1, &b3m);
+        }
 
         for (auto s : mlp.ListArguments()) {
             LG << s;
@@ -72,26 +123,52 @@ public:
             .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batchSize));
         //.SetParam("clip_gradient", 10);
         kv->SetOptimizer(std::move(opt));
-
-        int rank = 0;
-        int total_count = 1;
-        if (is_local == false)
-        {
-            rank = kv->GetRank();
-            total_count = kv->GetNumWorkers();
-        }
+        
 
         const int nMiniBatches = 1;
         bool init_kv = false;
+        int64_t pull_time_in_ms = 0;
+
+        std::vector<mxnet::cpp::NDArray> in_args;
+        std::vector<mxnet::cpp::NDArray> arg_grad_store;
+        std::vector<mxnet::cpp::OpReqType> grad_req_type;
+        
+        in_args.resize(8);
+        arg_grad_store.resize(8);
+        grad_req_type.resize(8);
+
+        in_args[1] = w1m;
+        in_args[2] = b1m;
+        in_args[3] = w2m;
+        in_args[4] = b2m;
+        in_args[5] = w3m;
+        in_args[6] = b3m;
+
+        arg_grad_store[0] = NDArray();
+        arg_grad_store[1] = w1m_g;
+        arg_grad_store[2] = b1m_g;
+        arg_grad_store[3] = w2m_g;
+        arg_grad_store[4] = b2m_g;
+        arg_grad_store[5] = w3m_g;
+        arg_grad_store[6] = b3m_g;
+        arg_grad_store[7] = NDArray();
+
+        grad_req_type[0] = kNullOp;
+        grad_req_type[1] = kWriteTo;
+        grad_req_type[2] = kWriteTo;
+        grad_req_type[3] = kWriteTo;
+        grad_req_type[4] = kWriteTo;
+        grad_req_type[5] = kWriteTo;
+        grad_req_type[6] = kWriteTo;
+        grad_req_type[7] = kNullOp;
         
         for (int ITER = 0; ITER < maxEpoch; ++ITER) {
             NDArray testData, testLabel;
             int mb = 0;
             size_t totalSamples = 0;
             DataReader dataReader(stream.get(), streamSize,
-                sampleSize, rank, total_count, batchSize);            
-            while (!dataReader.Eof()) {
-                //if (mb++ >= nMiniBatches) break;
+                sampleSize, my_rank, total_count, batchSize);            
+            while (!dataReader.Eof()) {                
                 // read data in
                 auto r = dataReader.ReadBatch();
                 size_t nSamples = r.size() / sampleSize;
@@ -128,7 +205,13 @@ public:
                 std::iota(indices.begin(), indices.end(), 0);
                 if (!init_kv) {
                     kv->Init(indices, exe->arg_arrays);
-                    kv->Pull(indices, &exe->arg_arrays);
+                    
+                    for (size_t i = 0; i < indices.size(); ++i)
+                        if (grad_req_type[i] != kNullOp)
+                        {
+                            kv->Pull(indices[i], &exe->arg_arrays[i]);
+                        }
+
                     init_kv = true;
                 }
                 exe->Forward(true);
@@ -136,18 +219,27 @@ public:
                 LG << "Iter " << ITER
                     << ", accuracy: " << Auc(exe->outputs[0], labelArray)
                     << "\t sample/s: " << samplesProcessed / (get_time() - sTime) 
-                    << "\t Processing: [" << samplesProcessed * 100.0 / maxEpoch / dataReader.recordCount() << "%]";
+                    << "\t Progress: [" << samplesProcessed * 100.0 / maxEpoch / dataReader.recordCount() << "%]";
                 exe->Backward();
-                kv->Push(indices, exe->grad_arrays);
-                kv->Pull(indices, &exe->arg_arrays);
-                //exe->UpdateAll(&opt, learning_rate);
+                
+                auto start_time = std::chrono::system_clock::now();
+                
+                for (size_t i = 0; i < indices.size(); ++i)
+                    if (grad_req_type[i] != kNullOp)
+                    {
+                        kv->Push(indices[i], exe->grad_arrays[i]);
+                        kv->Pull(indices[i], &exe->arg_arrays[i]);
+                    }
+
                 NDArray::WaitAll();
+
+                auto end_time = std::chrono::system_clock::now();
+                auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                pull_time_in_ms += elapse_in_ms.count();
+
                 delete exe;
             }
-            LG << "Total samples: " << totalSamples;
-
-            //LG << "Iter " << ITER
-            //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
+            LG << "Total samples: " << totalSamples << "\tPull Time: [" << pull_time_in_ms / 1000.0 << "s]";            
         }
 
         kv->Barrier();
@@ -260,7 +352,7 @@ int main(int argc, char const *argv[]) {
     URI dataPath(argv[1]);
     init_env(dataPath.protocol == "hdfs://");
 
-    KVStore *kv = new KVStore("dist_async");
+    KVStore *kv = new KVStore("dist_sync");
     if (kv->GetRole() != "worker") {
         LG << "Running KVStore server";
         kv->RunServer();
@@ -277,4 +369,5 @@ int main(int argc, char const *argv[]) {
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now() - start);
     LG << "Training Duration = " << duration.count() / 1000.0 << "s\tlocal machine speed: [" << sample_count * 1000.0 / duration.count() << "/s]\ttotal speed: [" << sample_count * 1000.0 * kv->GetNumWorkers() / duration.count() << "/s]";
+    delete kv;
 }

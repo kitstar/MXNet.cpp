@@ -94,7 +94,7 @@ private:
                 if (reset_ || exit_) break;
                 buffer_.resize(recordSize_ * batchSize_);
                 size_t bytesToRead = recordByteSize * min(batchSize_, recordCount);
-                LG << "Bytes to read = " << bytesToRead;
+                // LG << "Bytes to read = " << bytesToRead;
                 size_t bytesRead = stream_->Read(buffer_.data(), bytesToRead);
                 if (bytesRead == 0) {
                     break;
