@@ -7,7 +7,7 @@ using namespace std;
 using namespace mxnet::cpp;
 
 
-void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize)
+size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize)
 {
 
     /*define the symbolic net*/
@@ -46,6 +46,7 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
 
     double samplesProcessed = 0;
     double sTime = get_time();
+    int64_t pull_time_in_ms = 0;
 
     /*setup basic configs*/
     std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
@@ -57,8 +58,7 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
         kv->SetOptimizer(std::move(opt));
     }
     kv->Barrier();
-
-    const int nMiniBatches = 1;
+    
     bool init_kv = false;
     
     int my_rank = 0;
@@ -69,73 +69,88 @@ void Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t stre
         total_rank = kv->GetNumWorkers();
     }
 
-    for (int ITER = 0; ITER < maxEpoch; ++ITER) {
-        NDArray testData, testLabel;
-        int mb = 0;
-        DataReader dataReader(stream.get(), streamSize,
-            sampleSize, my_rank, total_rank, batchSize);
-        size_t totalSamples = 0;
-        while (!dataReader.Eof()) {
-            //if (mb++ >= nMiniBatches) break;
-            // read data in
-            auto r = dataReader.ReadBatch();
-            size_t nSamples = r.size() / sampleSize;
-            totalSamples += nSamples;
-            vector<float> data_vec, label_vec;
-            samplesProcessed += nSamples;
-            CHECK(!r.empty());
-            for (int i = 0; i < nSamples; i++) {
-                float * rp = r.data() + sampleSize * i;
-                label_vec.push_back(*rp);
-                data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
-            }
-            r.clear();
-            r.shrink_to_fit();
+    if (kv->GetRole() == "worker")
+    {
+        for (int ITER = 0; ITER < maxEpoch; ++ITER) {
+            NDArray testData, testLabel;
+            int mb = 0;
+            size_t totalSamples = 0;
+            DataReader dataReader(stream.get(), streamSize,
+                sampleSize, my_rank, total_rank, batchSize);
+            while (!dataReader.Eof()) {
+                //if (mb++ >= nMiniBatches) break;
+                // read data in
+                auto r = dataReader.ReadBatch();
+                size_t nSamples = r.size() / sampleSize;
+                totalSamples += nSamples;
+                vector<float> data_vec, label_vec;
+                samplesProcessed += nSamples;
+                CHECK(!r.empty());
+                for (int i = 0; i < nSamples; i++) {
+                    float * rp = r.data() + sampleSize * i;
+                    label_vec.push_back(*rp);
+                    data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
+                }
+                r.clear();
+                r.shrink_to_fit();
 
-            const float *dptr = data_vec.data();
-            const float *lptr = label_vec.data();
-            NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
-                ctx_cpu, false);
-            NDArray labelArray =
-                NDArray(Shape(nSamples), ctx_cpu, false);
-            dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
-            labelArray.SyncCopyFromCPU(lptr, nSamples);
-            args_map["data"] = dataArray;
-            args_map["label"] = labelArray;
-            args_map["w1"] = w1m;
-            args_map["b1"] = b1m;
-            args_map["w2"] = w2m;
-            args_map["b2"] = b2m;
-            args_map["w3"] = w3m;
-            args_map["b3"] = b3m;
-            Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
-            std::vector<int> indices(exe->arg_arrays.size());
-            std::iota(indices.begin(), indices.end(), 0);
-            if (!init_kv) {
-                kv->Init(indices, exe->arg_arrays);
+                const float *dptr = data_vec.data();
+                const float *lptr = label_vec.data();
+                NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
+                    ctx_cpu, false);
+                NDArray labelArray =
+                    NDArray(Shape(nSamples), ctx_cpu, false);
+                dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
+                labelArray.SyncCopyFromCPU(lptr, nSamples);
+                args_map["data"] = dataArray;
+                args_map["label"] = labelArray;
+                args_map["w1"] = w1m;
+                args_map["b1"] = b1m;
+                args_map["w2"] = w2m;
+                args_map["b2"] = b2m;
+                args_map["w3"] = w3m;
+                args_map["b3"] = b3m;
+                Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
+                std::vector<int> indices(exe->arg_arrays.size());
+                std::iota(indices.begin(), indices.end(), 0);
+                if (!init_kv) {
+                    kv->Init(indices, exe->arg_arrays);
+                    kv->Pull(indices, &exe->arg_arrays);
+                    init_kv = true;
+                }
+                exe->Forward(true);
+                NDArray::WaitAll();
+                LG << "Iter " << ITER
+                    << ", accuracy: " << Auc(exe->outputs[0], labelArray)
+                    << "\tsample/s: " << samplesProcessed / (get_time() - sTime)
+                    << "\tProgress: [" << samplesProcessed * 100.0 / maxEpoch / dataReader.recordCount() << "%]";
+                exe->Backward();
+                kv->Push(indices, exe->grad_arrays);
+
+                auto start_time = std::chrono::system_clock::now();
+
                 kv->Pull(indices, &exe->arg_arrays);
-                init_kv = true;
+                //exe->UpdateAll(&opt, learning_rate);
+                NDArray::WaitAll();
+
+                auto end_time = std::chrono::system_clock::now();
+                auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                pull_time_in_ms += elapse_in_ms.count();
+
+                delete exe;
             }
-            exe->Forward(true);
-            NDArray::WaitAll();
-            LG << "Iter " << ITER
-                << ", accuracy: " << Auc(exe->outputs[0], labelArray)
-                << "\t sample/s: " << samplesProcessed / (get_time() - sTime);
-            exe->Backward();
-            kv->Push(indices, exe->grad_arrays);
-            kv->Pull(indices, &exe->arg_arrays);
-            //exe->UpdateAll(&opt, learning_rate);
-            NDArray::WaitAll();
-            delete exe;
+            LG << "Total samples: " << totalSamples << "\tPull Time: [" << pull_time_in_ms / 1000.0 << "s]";
+
+            //LG << "Iter " << ITER
+            //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
         }
-        LG << "Total samples: " << totalSamples;
-
-        //LG << "Iter " << ITER
-        //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
     }
+    else kv->Barrier();
 
-    if (kv->GetRank() == 0) output_model();
     kv->Barrier();
+    // if (kv->GetRank() == 0) output_model();
+
+    return samplesProcessed;
 }
 
 void Mlp::output_model()
@@ -216,7 +231,7 @@ int main(int argc, const char *argv[])
     std::string args = "dist_async#";
     args += argv[2];
     args += '#';
-    args += argv[3];
+    args += argv[3];    
 
     LG << "Train Ads running setting: " << args << "." << endl;
     KVStore *kv = new KVStore(args);
@@ -227,15 +242,15 @@ int main(int argc, const char *argv[])
 
     if (dataPath.protocol == "hdfs://") init_env();
 
-
     auto hdfs = FileSystem::GetInstance(dataPath);    
     size_t size = hdfs->GetPathInfo(dataPath).size;
     std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
 
     Mlp mlp(dataPath.protocol.empty());
     auto start = std::chrono::steady_clock::now();
-    mlp.Run(kv, std::move(stream), size);
+    auto sample_count = mlp.Run(kv, std::move(stream), size);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now() - start);
-    LG << "Training Duration = " << duration.count() / 1000.0 << "s";
+    LG << "Training Duration = " << duration.count() / 1000.0 << "s\tLocal machine speed: [" << sample_count * 1000.0 / duration.count() << "/s]\tTotal speed: [" << sample_count * 1000.0 * kv->GetNumWorkers() / duration.count() / 2 << "/s]";
+    // delete kv;
 }
