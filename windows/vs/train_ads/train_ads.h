@@ -41,7 +41,7 @@ public:
         is_local_data(_is_local)
     { }
     
-    size_t Run(mxnet::cpp::KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize);
+    size_t Run(mxnet::cpp::KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize, bool sync);
 
 protected:
     void output_model();
@@ -61,6 +61,13 @@ private:
     mxnet::cpp::Context ctx_cpu;
     mxnet::cpp::Context ctx_dev;
     std::map<std::string, mxnet::cpp::NDArray> args_map;
+	std::map<std::string, mxnet::cpp::NDArray> grads_map;
+	std::map<std::string, mxnet::cpp::OpReqType> reqtype_map;
+
+	std::vector<mxnet::cpp::NDArray> in_args;
+	std::vector<mxnet::cpp::NDArray> arg_grad_store;
+	std::vector<mxnet::cpp::OpReqType> grad_req_type;
+
     float learning_rate = 0.01;
     float weight_decay = 1e-5;
     bool is_local_data;
