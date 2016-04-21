@@ -70,45 +70,14 @@ public:
             b2m_g(Shape(512), ctx_cpu, false),
             b3m_g(Shape(1), ctx_cpu, false);
 
-        if (true) // TODO: fix for (sync mode == true)
-        {
-            if (my_rank == 0)
-            {
-                NDArray::SampleGaussian(0, 1, &w1m);
-                NDArray::SampleGaussian(0, 1, &w2m);
-                NDArray::SampleGaussian(0, 1, &w3m);
 
-                NDArray::SampleGaussian(0, 1, &b1m);
-                NDArray::SampleGaussian(0, 1, &b2m);
-                NDArray::SampleGaussian(0, 1, &b3m);
-            }
-            else
-            {
-                std::vector<mx_float> w1mdata(2048 * 600, 0);
-                w1m.SyncCopyFromCPU(w1mdata);
-                std::vector<mx_float> w2mdata(512 * 2048, 0);
-                w2m.SyncCopyFromCPU(w2mdata);
-                std::vector<mx_float> w3mdata(512, 0);
-                w3m.SyncCopyFromCPU(w3mdata);
+        NDArray::SampleGaussian(0, 1, &w1m);
+        NDArray::SampleGaussian(0, 1, &w2m);
+        NDArray::SampleGaussian(0, 1, &w3m);
 
-                std::vector<mx_float> b1mdata(2048, 0);
-                b1m.SyncCopyFromCPU(b1mdata);
-                std::vector<mx_float> b2mdata(512);
-                b2m.SyncCopyFromCPU(b2mdata);
-                std::vector<mx_float> b3mdata(1, 0);
-                b3m.SyncCopyFromCPU(b3mdata);
-            }
-        }
-        else
-        {
-            NDArray::SampleGaussian(0, 1, &w1m);
-            NDArray::SampleGaussian(0, 1, &w2m);
-            NDArray::SampleGaussian(0, 1, &w3m);
-
-            NDArray::SampleGaussian(0, 1, &b1m);
-            NDArray::SampleGaussian(0, 1, &b2m);
-            NDArray::SampleGaussian(0, 1, &b3m);
-        }
+        NDArray::SampleGaussian(0, 1, &b1m);
+        NDArray::SampleGaussian(0, 1, &b2m);
+        NDArray::SampleGaussian(0, 1, &b3m);
 
         for (auto s : mlp.ListArguments()) {
             LG << s;
@@ -203,7 +172,8 @@ public:
                 Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
                 std::vector<int> indices(exe->arg_arrays.size());
                 std::iota(indices.begin(), indices.end(), 0);
-                if (!init_kv) {
+                if (!init_kv) 
+                {
                     kv->Init(indices, exe->arg_arrays);
                     
                     for (size_t i = 0; i < indices.size(); ++i)
@@ -251,7 +221,7 @@ private:
     Context ctx_cpu;
     Context ctx_dev;
     map<string, NDArray> args_map;
-    const static int batchSize = 3072;
+    const static int batchSize = 300;
     const static int sampleSize = 601;
     const static int maxEpoch = 1;
     float learning_rate = 0.01;
