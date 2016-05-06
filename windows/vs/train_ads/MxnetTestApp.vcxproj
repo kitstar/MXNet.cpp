@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\..\include\base.h" />
     <ClInclude Include="..\..\..\include\c_api.h" />
+    <ClInclude Include="..\..\..\include\data.h" />
     <ClInclude Include="..\..\..\include\executor.h" />
     <ClInclude Include="..\..\..\include\executor.hpp" />
     <ClInclude Include="..\..\..\include\kvstore.hpp" />
@@ -39,9 +40,8 @@
     <ClInclude Include="..\..\..\include\shape.h" />
     <ClInclude Include="..\..\..\include\symbol.h" />
     <ClInclude Include="..\..\..\include\symbol.hpp" />
-    <ClInclude Include="data.h" />
+    <ClInclude Include="..\..\..\include\util.h" />
     <ClInclude Include="train_ads.h" />
-    <ClInclude Include="util.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\include\MLP.cpp" />

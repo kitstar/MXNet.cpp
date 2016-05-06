@@ -5,8 +5,6 @@
 # include "MxNetCpp.h"
 # include "util.h"
 # include "data.h"
-# include "io/filesys.h"
-
 
 using namespace std;
 using namespace mxnet::cpp;
@@ -32,6 +30,26 @@ TrainAds::TrainAds()
     arg_grad_store.resize(8);
 }
 
+void TrainAds::build_network()
+{    
+    /*define the symbolic net*/
+    auto sym_x = Symbol::Variable("data");
+    auto sym_label = Symbol::Variable("label");
+    auto w1 = Symbol::Variable("w1");
+    auto b1 = Symbol::Variable("b1");
+    auto w2 = Symbol::Variable("w2");
+    auto b2 = Symbol::Variable("b2");
+    auto w3 = Symbol::Variable("w3");
+    auto b3 = Symbol::Variable("b3");
+
+    auto fc1 = FullyConnected("fc1", sym_x, w1, b1, 2048);
+    auto act1 = Activation("act1", fc1, ActivationActType::relu);
+    auto fc2 = FullyConnected("fc2", act1, w2, b2, 512);
+    auto act2 = Activation("act2", fc2, ActivationActType::relu);
+    auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
+    mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
+}
+
 
 /* virtual */ size_t TrainAds::train(std::string file_name, std::string kvstore_args)
 {
@@ -51,43 +69,10 @@ TrainAds::TrainAds()
     {
         // Allreduce
         mode = sync_mode_t::Sync;
-    }
+    }    
 
+    build_network();    
 
-    // Init file stream    
-    using namespace dmlc::io;
-    URI dataPath(file_name.c_str());
-    if (dataPath.protocol == "hdfs://") init_hdfs_env();
-    auto hdfs = FileSystem::GetInstance(dataPath);
-    
-    size_t streamSize = hdfs->GetPathInfo(dataPath).size;
-    std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, true));
-
-    // Set the input file read range
-    int my_rank = 0;
-    int total_rank = 1;
-    if (!dataPath.protocol.empty())
-    {
-        my_rank = kv->GetRank();
-        total_rank = kv->GetNumWorkers();
-    }
-
-    /* define the symbolic net */
-    auto sym_x = Symbol::Variable("data");
-    auto sym_label = Symbol::Variable("label");
-    auto w1 = Symbol::Variable("w1");
-    auto b1 = Symbol::Variable("b1");
-    auto w2 = Symbol::Variable("w2");
-    auto b2 = Symbol::Variable("b2");
-    auto w3 = Symbol::Variable("w3");
-    auto b3 = Symbol::Variable("b3");
-
-    auto fc1 = FullyConnected("fc1", sym_x, w1, b1, 2048);
-    auto act1 = Activation("act1", fc1, ActivationActType::relu);
-    auto fc2 = FullyConnected("fc2", act1, w2, b2, 512);
-    auto act2 = Activation("act2", fc2, ActivationActType::relu);
-    auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
-    auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
 
     NDArray w1m(Shape(2048, 600), ctx_cpu, false),
         w2m(Shape(512, 2048), ctx_cpu, false),
@@ -107,7 +92,7 @@ TrainAds::TrainAds()
 
     if (mode == sync_mode_t::Sync)
     {
-        if (my_rank == 0)
+        if (kv->GetRank() == 0)
         {
             NDArray::SampleGaussian(0, 1, &w1m);
             NDArray::SampleGaussian(0, 1, &w2m);
@@ -185,13 +170,12 @@ TrainAds::TrainAds()
     bool init_kv = false;
     for (int ITER = 0; ITER < epochCount; ++ITER) 
     {                     
-        DataReader dataReader(stream.get(), streamSize,
-            sampleSize, my_rank, total_rank, batchSize);
+        DataReader *dataReader = get_file_reader(file_name, batchSize, sampleSize, kv->GetRank(), kv->GetNumWorkers());        
 
-        while (!dataReader.Eof())
+        while (!dataReader->Eof())
         {
             // read data in
-            auto r = dataReader.ReadBatch();
+            auto r = dataReader->ReadBatch();
             size_t nSamples = r.size() / sampleSize;
             vector<float> data_vec, label_vec;
             processed_sample_count += nSamples;
@@ -261,7 +245,7 @@ TrainAds::TrainAds()
             LG << "Iter " << ITER
                 << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
                 << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-                << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader.recordCount() << "%]";
+                << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader->recordCount() << "%]";
             
             exe->Backward();
             
@@ -279,9 +263,7 @@ TrainAds::TrainAds()
             }
             else
             {
-                // Parameter Server                
-                auto start_time = std::chrono::system_clock::now();
-
+                // Parameter Server
                 for (size_t i = 0; i < indices.size(); ++i)
                     if (grad_req_type[i] != kNullOp)
                     {
@@ -289,14 +271,16 @@ TrainAds::TrainAds()
                         kv->Pull(indices[i], &exe->arg_arrays[i]);
                     }
 
-                NDArray::WaitAll();                
+                NDArray::WaitAll();
             }
 
             delete exe;
         }
+
+        delete dataReader;
     }
 
-    kv->Barrier();    
+    kv->Barrier();
     
     auto end_time = std::chrono::system_clock::now();
     auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);    
@@ -304,10 +288,25 @@ TrainAds::TrainAds()
         "s\tLocal machine speed: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() << 
         "/s]\tTotal speed: [" << processed_sample_count * 1000.0 * kv->GetNumWorkers() / elapse_in_ms.count() << "/s]";
 
-    if (kv->GetRank() == 0) output_model(output_file);
+    if (kv->GetRank() == 0)
+    {
+        if (mode == sync_mode_t::Async && kv->GetNumWorkers() > 0)
+        {
+            for (size_t i = 0; i < in_args.size(); ++i)
+                if (grad_req_type[i] != kNullOp)
+                {
+                    kv->Pull(i, &in_args[i]);
+                }
+
+            NDArray::WaitAll();
+        }
+
+        output_model(output_file);
+    }
+        
+    kv->Barrier();
     
-    delete kv;
-    kv = nullptr;    
+    delete kv;    
 
     return processed_sample_count;
 }
@@ -316,44 +315,14 @@ TrainAds::TrainAds()
 /* virtual */ size_t TrainAds::predict(string file_name, string model_name, string kvstore_args)
 {    
     size_t processed_sample_count = 0;
-
+    
+    init_env(file_name);
+    
+    
     auto kv = new KVStore(kvstore_args);
-
-    // Init file stream    
-    using namespace dmlc::io;
-    URI dataPath(file_name.c_str());
-    if (dataPath.protocol == "hdfs://") init_hdfs_env();
-    auto hdfs = FileSystem::GetInstance(dataPath);
-
-    size_t streamSize = hdfs->GetPathInfo(dataPath).size;
-    std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, true));
-
-    // Set the input file read range
-    int my_rank = 0;
-    int total_rank = 1;
-    if (!dataPath.protocol.empty())
-    {
-        my_rank = kv->GetRank();
-        total_rank = kv->GetNumWorkers();
-    }
-
-    /*define the symbolic net*/
-    auto sym_x = Symbol::Variable("data");
-    auto sym_label = Symbol::Variable("label");
-    auto w1 = Symbol::Variable("w1");
-    auto b1 = Symbol::Variable("b1");
-    auto w2 = Symbol::Variable("w2");
-    auto b2 = Symbol::Variable("b2");
-    auto w3 = Symbol::Variable("w3");
-    auto b3 = Symbol::Variable("b3");
-
-    auto fc1 = FullyConnected("fc1", sym_x, w1, b1, 2048);
-    auto act1 = Activation("act1", fc1, ActivationActType::relu);
-    auto fc2 = FullyConnected("fc2", act1, w2, b2, 512);
-    auto act2 = Activation("act2", fc2, ActivationActType::relu);
-    auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
-    auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
-
+        
+    build_network();
+    
     NDArray w1m(Shape(2048, 600), ctx_cpu, false),
         w2m(Shape(512, 2048), ctx_cpu, false),
         w3m(Shape(1, 512), ctx_cpu, false);
@@ -390,16 +359,16 @@ TrainAds::TrainAds()
     
     auto start_time = std::chrono::system_clock::now();
     
-    batchSize = 499 * 1024 / sizeof(mx_float);
-    DataReader dataReader(stream.get(), streamSize,
-        sampleSize, my_rank, total_rank, batchSize);
+    batchSize = 499 * 1024 / sizeof(mx_float);        
+    DataReader * dataReader = get_file_reader(file_name, batchSize, sampleSize, kv->GetRank(), kv->GetNumWorkers());
 
-    ofstream fout("mxnet_predict.txt", ios::binary);
+    string temp_out_file = output_file + ".part" + to_string(kv->GetRank());    
+    auto output_stream = dmlc::Stream::Create(temp_out_file.c_str(), "w", true);
 
-    while (!dataReader.Eof())
+    while (!dataReader->Eof())
     {        
         // read data in
-        auto r = dataReader.ReadBatch();
+        auto r = dataReader->ReadBatch();
         size_t nSamples = r.size() / sampleSize;
         vector<float> data_vec, label_vec;
         processed_sample_count += nSamples;
@@ -439,14 +408,15 @@ TrainAds::TrainAds()
         
         LG  << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
             << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-            << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader.recordCount() << "%]";
+            << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader->recordCount() << "%]";
 
         int sample_count = labelArray.GetShape()[0];
-        fout.write(reinterpret_cast<const char *>(exe->outputs[0].GetData()), sample_count * sizeof(mx_float));
+        
+        output_stream->Write(reinterpret_cast<const void *>(exe->outputs[0].GetData()), sample_count * sizeof(mx_float));
                         
-        delete exe;        
+        delete exe;
     }
-    fout.close();
+    delete output_stream;
     
     auto end_time = std::chrono::system_clock::now();
     auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -454,6 +424,17 @@ TrainAds::TrainAds()
         "s\tLocal machine speed: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() <<
         "/s]\tTotal speed: [" << processed_sample_count * 1000.0 * kv->GetNumWorkers() / elapse_in_ms.count() << "/s]";
 
+    kv->Barrier();
+
+    if (output_file.substr(0, 7) == "hdfd://")
+    {
+        if (kv->GetRank() == 0)
+        {
+            merge_files(output_file, kv->GetNumWorkers());
+        }
+        kv->Barrier();
+    }
+        
     delete kv;
     kv = nullptr;
 
@@ -482,7 +463,9 @@ TrainAds::TrainAds()
 
 /* virtual */ void TrainAds::output_model(std::string model_name)
 {
-    std::ofstream modelout(model_name, std::ios::binary);
+    dmlc::Stream *stream = nullptr;
+    size_t s;
+    get_file_stream(model_name, stream, &s, "w");    
 
     for (auto it = 0; it < in_args.size(); ++it)
         if (grad_req_type[it] != kNullOp)
@@ -493,10 +476,10 @@ TrainAds::TrainAds()
                 Bsize *= shape;
             }
 
-            modelout.write((char*)in_args[it].GetData(), sizeof(float) * Bsize);
+            stream->Write((char*)in_args[it].GetData(), sizeof(float) * Bsize);
         }
     
-    modelout.close();
+    delete stream;
 }
 
 
@@ -505,7 +488,7 @@ int main(int argc, const char *argv[])
     LG << "Usage:";
     LG << "\tFor training: " << argv[0] << " train_data  output_model  machine_list  server_count_per_machine" << endl;
     LG << "\tFor predicting: " << argv[0] << " predict_data  input_model  predict_result machine_list  server_count_per_machine" << endl;
-    CHECK_GE(argc, 5);
+    CHECK_GE(argc, 4);
     
     auto kv_args = Mlp::generate_kvstore_args(sync_mode_t::Async, argv[argc - 2], argv[argc - 1]);
     TrainAds trainer;

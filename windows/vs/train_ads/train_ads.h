@@ -15,6 +15,8 @@ public:
     virtual size_t predict(std::string file_name, std::string model_name, std::string kvstore_args);    
 
 protected:
+    virtual void build_network();
+    
     virtual void output_model(std::string model_name);
 
     virtual void load_model(std::string model_name);
