@@ -121,7 +121,7 @@ void KVStore::Pull(const std::vector<int>& keys, std::vector<NDArray>* outs, int
 
 void KVStore::AllReduce(std::vector<NDArray>* vals)
 {	
-	for (size_t i = 0; i < vals->size(); i++)
+	for (size_t i = vals->size() - 1; i > 0; --i)
 	{		
 		std::vector<mx_uint> shape = (*vals)[i].GetShape();
 		if (!shape.empty())

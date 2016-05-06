@@ -81,9 +81,15 @@
     <ClInclude Include="train_ads.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\MLP.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="train_ads.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\include\MLP.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

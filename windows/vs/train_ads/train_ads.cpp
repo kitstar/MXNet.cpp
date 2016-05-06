@@ -2,22 +2,77 @@
 * Copyright (c) 2015 by Contributors
 */
 # include "train_ads.h"
+# include "MxNetCpp.h"
+# include "util.h"
+# include "data.h"
+# include "io/filesys.h"
+
 
 using namespace std;
 using namespace mxnet::cpp;
 
 
-size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t streamSize, bool sync)
+TrainAds::TrainAds()
 {
+    batchSize = 300;
+    sampleSize = 601;
+    epochCount = 1;
+
+    grad_req_type.resize(8);
+    grad_req_type[0] = kNullOp;
+    grad_req_type[1] = kWriteTo;
+    grad_req_type[2] = kWriteTo;
+    grad_req_type[3] = kWriteTo;
+    grad_req_type[4] = kWriteTo;
+    grad_req_type[5] = kWriteTo;
+    grad_req_type[6] = kWriteTo;
+    grad_req_type[7] = kNullOp;
+
+    in_args.resize(8);
+    arg_grad_store.resize(8);
+}
+
+
+/* virtual */ size_t TrainAds::train(std::string file_name, std::string kvstore_args)
+{
+    size_t processed_sample_count = 0;
+
+    // Init Paramter Server
+    LG << "Train Ads running setting: " << kvstore_args << "." << endl;
+    auto kv = new KVStore(kvstore_args);
+    kv->RunServer();
+    sync_mode_t mode;
+    if (kvstore_args[5] == 'a')
+    {
+        // Parameter Server        
+        mode = sync_mode_t::Async;
+    }
+    else
+    {
+        // Allreduce
+        mode = sync_mode_t::Sync;
+    }
+
+
+    // Init file stream    
+    using namespace dmlc::io;
+    URI dataPath(file_name.c_str());
+    if (dataPath.protocol == "hdfs://") init_hdfs_env();
+    auto hdfs = FileSystem::GetInstance(dataPath);
+    
+    size_t streamSize = hdfs->GetPathInfo(dataPath).size;
+    std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, true));
+
+    // Set the input file read range
     int my_rank = 0;
     int total_rank = 1;
-    if (!is_local_data)
+    if (!dataPath.protocol.empty())
     {
         my_rank = kv->GetRank();
         total_rank = kv->GetNumWorkers();
     }
 
-    /*define the symbolic net*/
+    /* define the symbolic net */
     auto sym_x = Symbol::Variable("data");
     auto sym_label = Symbol::Variable("label");
     auto w1 = Symbol::Variable("w1");
@@ -50,7 +105,7 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
         b2m_g(Shape(512), ctx_cpu, false),
         b3m_g(Shape(1), ctx_cpu, false);
 
-    if (sync)
+    if (mode == sync_mode_t::Sync)
     {
         if (my_rank == 0)
         {
@@ -93,27 +148,23 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
     for (auto s : mlp.ListArguments()) {
         LG << s;
     }
-
-    double samplesProcessed = 0;
-    double sTime = get_time();
-    int64_t pull_time_in_ms = 0;
+    
+    auto start_time = std::chrono::system_clock::now();
 
     /*setup basic configs*/
     std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
     (*opt).SetParam("momentum", 0.9)
         .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batchSize));
     //.SetParam("clip_gradient", 10);
-    if (kv->GetRank() == 0 && !sync)
+    
+    if (mode == sync_mode_t::Async)
     {
-        kv->SetOptimizer(std::move(opt));
+        if (kv->GetRank() == 0) kv->SetOptimizer(std::move(opt));        
+        kv->Barrier();
     }
-    kv->Barrier();
-
-    bool init_kv = false;
-
+            
     in_args.resize(8);
-    arg_grad_store.resize(8);
-    grad_req_type.resize(8);
+    arg_grad_store.resize(8);    
 
     in_args[1] = w1m;
     in_args[2] = b1m;
@@ -131,19 +182,9 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
     arg_grad_store[6] = b3m_g;
     arg_grad_store[7] = NDArray();
 
-    grad_req_type[0] = kNullOp;
-    grad_req_type[1] = kWriteTo;
-    grad_req_type[2] = kWriteTo;
-    grad_req_type[3] = kWriteTo;
-    grad_req_type[4] = kWriteTo;
-    grad_req_type[5] = kWriteTo;
-    grad_req_type[6] = kWriteTo;
-    grad_req_type[7] = kNullOp;
-
-    for (int ITER = 0; ITER < maxEpoch; ++ITER) {
-        NDArray testData, testLabel;
-        int mb = 0;
-        size_t totalSamples = 0;
+    bool init_kv = false;
+    for (int ITER = 0; ITER < epochCount; ++ITER) 
+    {                     
         DataReader dataReader(stream.get(), streamSize,
             sampleSize, my_rank, total_rank, batchSize);
 
@@ -152,17 +193,16 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
             // read data in
             auto r = dataReader.ReadBatch();
             size_t nSamples = r.size() / sampleSize;
-            totalSamples += nSamples;
             vector<float> data_vec, label_vec;
-            samplesProcessed += nSamples;
+            processed_sample_count += nSamples;
             CHECK(!r.empty());
-            for (int i = 0; i < nSamples; i++) {
+            for (int i = 0; i < nSamples; i++) 
+            {
                 float * rp = r.data() + sampleSize * i;
                 label_vec.push_back(*rp);
                 data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
             }
-            r.clear();
-            r.shrink_to_fit();
+            r.clear();            
 
             const float *dptr = data_vec.data();
             const float *lptr = label_vec.data();
@@ -182,9 +222,11 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
 
             std::vector<int> indices(exe->arg_arrays.size());
             std::iota(indices.begin(), indices.end(), 0);
-            if (!init_kv) {
-                if (sync)
+            if (!init_kv) 
+            {
+                if (mode == sync_mode_t::Sync)
                 {
+                    // Allreduce
                     std::vector<NDArray> parameters;
                     parameters.clear();
                     parameters.push_back(w1m);
@@ -197,6 +239,7 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
                 }
                 else
                 {
+                    // Parameter Server
                     kv->Init(indices, exe->arg_arrays);
 
                     for (size_t i = 0; i < indices.size(); ++i)
@@ -205,30 +248,38 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
                             kv->Pull(indices[i], &exe->arg_arrays[i]);
                         }
                 }
+                
                 init_kv = true;
             }
+
             exe->Forward(true);
             NDArray::WaitAll();
+
+            auto cur_time = std::chrono::system_clock::now();
+            auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time);
+
             LG << "Iter " << ITER
-                << ", accuracy: " << Auc(exe->outputs[0], labelArray)
-                << "\tsample/s: " << samplesProcessed / (get_time() - sTime)
-                << "\tProgress: [" << samplesProcessed * 100.0 / maxEpoch / dataReader.recordCount() << "%]";
+                << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
+                << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
+                << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader.recordCount() << "%]";
+            
             exe->Backward();
-            if (sync)
+            
+            if (mode == sync_mode_t::Sync)
             {
+                // Allreduce                
                 kv->AllReduce(&exe->grad_arrays);
                 for (size_t i = 0; i < indices.size(); i++)
-                {
                     if (grad_req_type[i] != kNullOp)
                     {
                         exe->grad_arrays[i].WaitToRead();
                         exe->arg_arrays[i].WaitToWrite();
                         opt->Update(indices[i], exe->arg_arrays[i], exe->grad_arrays[i]);
                     }
-                }
             }
             else
             {
+                // Parameter Server                
                 auto start_time = std::chrono::system_clock::now();
 
                 for (size_t i = 0; i < indices.size(); ++i)
@@ -238,125 +289,238 @@ size_t Mlp::Run(KVStore *kv, std::unique_ptr<dmlc::SeekStream> stream, size_t st
                         kv->Pull(indices[i], &exe->arg_arrays[i]);
                     }
 
-                NDArray::WaitAll();
-
-                auto end_time = std::chrono::system_clock::now();
-                auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-                pull_time_in_ms += elapse_in_ms.count();
+                NDArray::WaitAll();                
             }
 
             delete exe;
         }
-        LG << "Total samples: " << totalSamples << "\tPull Time: [" << pull_time_in_ms / 1000.0 << "s]";
-
-        //LG << "Iter " << ITER
-        //  << ", accuracy: " << ValAccuracy(mlp, testData, testLabel);
     }
 
-    kv->Barrier();
-    if (kv->GetRank() == 0) output_model();
+    kv->Barrier();    
+    
+    auto end_time = std::chrono::system_clock::now();
+    auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);    
+    LG << "Training Duration = " << elapse_in_ms.count() / 1000.0 << 
+        "s\tLocal machine speed: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() << 
+        "/s]\tTotal speed: [" << processed_sample_count * 1000.0 * kv->GetNumWorkers() / elapse_in_ms.count() << "/s]";
 
-    return samplesProcessed;
+    if (kv->GetRank() == 0) output_model(output_file);
+    
+    delete kv;
+    kv = nullptr;    
+
+    return processed_sample_count;
 }
 
-void Mlp::output_model()
-{
-    std::ofstream modelout("mxnet_model.txt", std::ios::binary);
 
-    for (auto it = args_map.begin(); it != args_map.end(); ++it)
+/* virtual */ size_t TrainAds::predict(string file_name, string model_name, string kvstore_args)
+{    
+    size_t processed_sample_count = 0;
+
+    auto kv = new KVStore(kvstore_args);
+
+    // Init file stream    
+    using namespace dmlc::io;
+    URI dataPath(file_name.c_str());
+    if (dataPath.protocol == "hdfs://") init_hdfs_env();
+    auto hdfs = FileSystem::GetInstance(dataPath);
+
+    size_t streamSize = hdfs->GetPathInfo(dataPath).size;
+    std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, true));
+
+    // Set the input file read range
+    int my_rank = 0;
+    int total_rank = 1;
+    if (!dataPath.protocol.empty())
     {
-        int Bsize = 1;
-        for (auto shape : it->second.GetShape())
+        my_rank = kv->GetRank();
+        total_rank = kv->GetNumWorkers();
+    }
+
+    /*define the symbolic net*/
+    auto sym_x = Symbol::Variable("data");
+    auto sym_label = Symbol::Variable("label");
+    auto w1 = Symbol::Variable("w1");
+    auto b1 = Symbol::Variable("b1");
+    auto w2 = Symbol::Variable("w2");
+    auto b2 = Symbol::Variable("b2");
+    auto w3 = Symbol::Variable("w3");
+    auto b3 = Symbol::Variable("b3");
+
+    auto fc1 = FullyConnected("fc1", sym_x, w1, b1, 2048);
+    auto act1 = Activation("act1", fc1, ActivationActType::relu);
+    auto fc2 = FullyConnected("fc2", act1, w2, b2, 512);
+    auto act2 = Activation("act2", fc2, ActivationActType::relu);
+    auto fc3 = FullyConnected("fc3", act2, w3, b3, 1);
+    auto mlp = LogisticRegressionOutput("softmax", fc3, sym_label);
+
+    NDArray w1m(Shape(2048, 600), ctx_cpu, false),
+        w2m(Shape(512, 2048), ctx_cpu, false),
+        w3m(Shape(1, 512), ctx_cpu, false);
+
+    NDArray w1m_g(Shape(2048, 600), ctx_cpu, false),
+        w2m_g(Shape(512, 2048), ctx_cpu, false),
+        w3m_g(Shape(1, 512), ctx_cpu, false);
+
+    NDArray b1m(Shape(2048), ctx_cpu, false),
+        b2m(Shape(512), ctx_cpu, false),
+        b3m(Shape(1), ctx_cpu, false);
+
+    NDArray b1m_g(Shape(2048), ctx_cpu, false),
+        b2m_g(Shape(512), ctx_cpu, false),
+        b3m_g(Shape(1), ctx_cpu, false);
+    
+    in_args[1] = w1m;
+    in_args[2] = b1m;
+    in_args[3] = w2m;
+    in_args[4] = b2m;
+    in_args[5] = w3m;
+    in_args[6] = b3m;
+    
+    arg_grad_store[0] = NDArray();
+    arg_grad_store[1] = w1m_g;
+    arg_grad_store[2] = b1m_g;
+    arg_grad_store[3] = w2m_g;
+    arg_grad_store[4] = b2m_g;
+    arg_grad_store[5] = w3m_g;
+    arg_grad_store[6] = b3m_g;
+    arg_grad_store[7] = NDArray();
+
+    load_model(model_name);        
+    
+    auto start_time = std::chrono::system_clock::now();
+    
+    batchSize = 499 * 1024 / sizeof(mx_float);
+    DataReader dataReader(stream.get(), streamSize,
+        sampleSize, my_rank, total_rank, batchSize);
+
+    ofstream fout("mxnet_predict.txt", ios::binary);
+
+    while (!dataReader.Eof())
+    {        
+        // read data in
+        auto r = dataReader.ReadBatch();
+        size_t nSamples = r.size() / sampleSize;
+        vector<float> data_vec, label_vec;
+        processed_sample_count += nSamples;
+        CHECK(!r.empty());
+        for (int i = 0; i < nSamples; i++) 
         {
-            Bsize *= shape;
+            float * rp = r.data() + sampleSize * i;
+            label_vec.push_back(*rp);
+            data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
+        }
+        r.clear();        
+
+        const float *dptr = data_vec.data();
+        const float *lptr = label_vec.data();
+        NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
+            ctx_cpu, false);
+        NDArray labelArray =
+            NDArray(Shape(nSamples), ctx_cpu, false);
+        dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
+        labelArray.SyncCopyFromCPU(lptr, nSamples);
+        in_args[0] = dataArray;
+        in_args[7] = labelArray;
+
+        std::vector<NDArray> aux_states;
+
+        Executor* exe = new Executor(mlp, ctx_dev, in_args, arg_grad_store,
+            grad_req_type, aux_states);
+
+        std::vector<int> indices(exe->arg_arrays.size());
+        std::iota(indices.begin(), indices.end(), 0);        
+
+        exe->Forward(false);
+        NDArray::WaitAll();
+
+        auto cur_time = std::chrono::system_clock::now();
+        auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time);
+        
+        LG  << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
+            << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
+            << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader.recordCount() << "%]";
+
+        int sample_count = labelArray.GetShape()[0];
+        fout.write(reinterpret_cast<const char *>(exe->outputs[0].GetData()), sample_count * sizeof(mx_float));
+                        
+        delete exe;        
+    }
+    fout.close();
+    
+    auto end_time = std::chrono::system_clock::now();
+    auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    LG << "Predicting Duration = " << elapse_in_ms.count() / 1000.0 <<
+        "s\tLocal machine speed: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() <<
+        "/s]\tTotal speed: [" << processed_sample_count * 1000.0 * kv->GetNumWorkers() / elapse_in_ms.count() << "/s]";
+
+    delete kv;
+    kv = nullptr;
+
+    return processed_sample_count;
+}
+
+/* virtual */ void TrainAds::load_model(string model_name)
+{
+    std::ifstream fin(model_name, std::ios::binary);
+
+    for (auto it = 0; it < in_args.size(); ++it)
+        if (grad_req_type[it] != kNullOp)
+        {
+            int Bsize = 1;
+            for (auto shape : in_args[it].GetShape())
+            {
+                Bsize *= shape;
+            }
+
+            fin.read((char*)in_args[it].GetData(), sizeof(float) * Bsize);
         }
 
-        modelout.write((char*)it->second.GetData(), sizeof(float) * Bsize);
-    }
+    fin.close();
+}
+
+
+/* virtual */ void TrainAds::output_model(std::string model_name)
+{
+    std::ofstream modelout(model_name, std::ios::binary);
+
+    for (auto it = 0; it < in_args.size(); ++it)
+        if (grad_req_type[it] != kNullOp)
+        {
+            int Bsize = 1;
+            for (auto shape : in_args[it].GetShape())
+            {
+                Bsize *= shape;
+            }
+
+            modelout.write((char*)in_args[it].GetData(), sizeof(float) * Bsize);
+        }
+    
     modelout.close();
 }
 
-float Mlp::ValAccuracy(Symbol mlp,
-    const NDArray& samples,
-    const NDArray& labels)
-{
-    size_t nSamples = samples.GetShape()[0];
-    size_t nCorrect = 0;
-    size_t startIndex = 0;
-    args_map["data"] = samples;
-    args_map["label"] = labels;
-
-    Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
-    exe->Forward(false);
-    const auto &out = exe->outputs;
-    NDArray result = out[0].Copy(ctx_cpu);
-    result.WaitToRead();
-    const mx_float *pResult = result.GetData();
-    const mx_float *pLabel = labels.GetData();
-    for (int i = 0; i < nSamples; ++i) {
-        float label = pLabel[i];
-        int cat_num = result.GetShape()[1];
-        float p_label = 0, max_p = pResult[i * cat_num];
-        for (int j = 0; j < cat_num; ++j) {
-            float p = pResult[i * cat_num + j];
-            if (max_p < p) {
-                p_label = j;
-                max_p = p;
-            }
-        }
-        if (label == p_label) nCorrect++;
-    }
-    delete exe;
-
-    return nCorrect * 1.0 / nSamples;
-}
-
-float Mlp::Auc(const NDArray& result, const NDArray& labels)
-{
-    result.WaitToRead();
-    const mx_float *pResult = result.GetData();
-    const mx_float *pLabel = labels.GetData();
-    int nSamples = labels.GetShape()[0];
-    size_t nCorrect = 0;
-    for (int i = 0; i < nSamples; ++i)
-    {
-        float label = pLabel[i];
-        float p_label = pResult[i];
-        if (label == (p_label >= 0.5)) nCorrect++;
-    }
-    return nCorrect * 1.0 / nSamples;
-}
-
-
 
 int main(int argc, const char *argv[])
-{
-    LG << "Usage: " << argv[0] << " training_data  machine_list  server_count_per_machine" << endl;
-    CHECK_EQ(argc, 4);
+{    
+    LG << "Usage:";
+    LG << "\tFor training: " << argv[0] << " train_data  output_model  machine_list  server_count_per_machine" << endl;
+    LG << "\tFor predicting: " << argv[0] << " predict_data  input_model  predict_result machine_list  server_count_per_machine" << endl;
+    CHECK_GE(argc, 5);
+    
+    auto kv_args = Mlp::generate_kvstore_args(sync_mode_t::Async, argv[argc - 2], argv[argc - 1]);
+    TrainAds trainer;
+    if (argc == 5)
+    {
+        // Training
+        trainer.output_file = argv[2];
+        trainer.train(argv[1], kv_args);
+    }
+    else
+    {
+        // Predicting
+        trainer.output_file = argv[3];
+        trainer.predict(argv[1], argv[2], kv_args);
+    }
 
-    std::string args = "dist_sync#";
-    args += argv[2];
-    args += '#';
-    args += argv[3];
-
-    LG << "Train Ads running setting: " << args << "." << endl;
-    KVStore *kv = new KVStore(args);
-    kv->RunServer();
-
-    using namespace dmlc::io;
-    URI dataPath(argv[1]);
-
-    if (dataPath.protocol == "hdfs://") init_env();
-
-    auto hdfs = FileSystem::GetInstance(dataPath);
-    size_t size = hdfs->GetPathInfo(dataPath).size;
-    std::unique_ptr<dmlc::SeekStream> stream(hdfs->OpenForRead(dataPath, false));
-
-    Mlp mlp(dataPath.protocol.empty());
-    auto start = std::chrono::steady_clock::now();
-    auto sample_count = mlp.Run(kv, std::move(stream), size, true);
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
-        (std::chrono::steady_clock::now() - start);
-    LG << "Training Duration = " << duration.count() / 1000.0 << "s\tLocal machine speed: [" << sample_count * 1000.0 / duration.count() << "/s]\tTotal speed: [" << sample_count * 1000.0 * kv->GetNumWorkers() / duration.count() << "/s]";
-    delete kv;
+    return 0;
 }

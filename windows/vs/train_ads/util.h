@@ -76,3 +76,26 @@ inline double get_time()
   high_resolution_clock::duration tp = high_resolution_clock::now().time_since_epoch();
   return (double)tp.count() * high_resolution_clock::period::num / high_resolution_clock::period::den;
 }
+
+void init_hdfs_env()
+{
+    std::string entry = "CLASSPATH=";
+
+    // Init classpath
+    char buf[129];
+    FILE* output = _popen("hadoop classpath --glob", "r");
+    while (true)
+    {
+        size_t len = fread(buf, sizeof(char), sizeof(buf) - 1, output);
+        if (len == 0) break;
+        buf[len] = 0;
+        entry += buf;
+    }
+    fclose(output);
+    entry.pop_back(); // Remove line ending
+    _putenv(entry.c_str());
+
+# if !defined(NDEBUG)
+    LG << entry;
+# endif
+}
