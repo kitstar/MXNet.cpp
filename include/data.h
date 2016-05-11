@@ -105,6 +105,7 @@ private:
                 recordCount -= bytesRead / recordByteSize;
                 condReady_.notify_one();
             }
+            condEmpty_.wait(l);
             eof_ = true;
             while (!exit_ && !reset_) condEmpty_.wait(l);
         }
