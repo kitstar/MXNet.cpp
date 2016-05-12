@@ -426,7 +426,7 @@ void TrainAds::build_network()
 
     kv->Barrier();
 
-    if (output_file.substr(0, 7) == "hdfd://")
+    if (output_file.substr(0, 7) == "hdfs://")
     {
         if (kv->GetRank() == 0)
         {
