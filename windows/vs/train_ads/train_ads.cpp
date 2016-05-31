@@ -490,6 +490,10 @@ int main(int argc, const char *argv[])
     LG << "\tFor predicting: " << argv[0] << " predict_data  input_model  predict_result machine_list  server_count_per_machine" << endl;
     CHECK_GE(argc, 4);
     
+# if !defined(NDEBUG)
+    getchar();
+# endif
+    
     auto kv_args = Mlp::generate_kvstore_args(sync_mode_t::Async, argv[argc - 2], argv[argc - 1]);
     TrainAds trainer;
     if (argc == 5)
