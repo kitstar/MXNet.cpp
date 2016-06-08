@@ -4,6 +4,7 @@
  * \brief implementation of kvstore
  * \author Xin Li
  */
+# pragma once
 
 #include <algorithm>
 #include <map>

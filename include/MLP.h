@@ -13,6 +13,7 @@
 enum class sync_mode_t
 {
     Invalid = 0,
+    Local,
     Sync,
     Async
 };
@@ -63,11 +64,13 @@ public:
 
 
 protected:
+    const std::string mxnet_section = "apps.MXNET";
+    
     mxnet::cpp::Context ctx_cpu;
     mxnet::cpp::Context ctx_dev;
     
     mxnet::cpp::Symbol mlp;
-    int batchSize;
-    int sampleSize;
-    int epochCount;
+    int batch_size;
+    int sample_size;
+    int epoch_count;
 };

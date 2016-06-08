@@ -1,5 +1,6 @@
 # include "MLP.h"
 # include "io/filesys.h"
+# include "MxNetCpp.h"
 
 using namespace std;
 using namespace mxnet::cpp;
@@ -70,6 +71,9 @@ void merge_files(std::string final_name, int count)
     string ret;
     switch (mode)
     {
+    case (sync_mode_t::Local) :
+        return "local";        
+    
     case (sync_mode_t::Sync) :
         ret += "dist_sync#";
         break;

@@ -5,6 +5,8 @@
  * \author Chuntao Hong, Zhang Chen
  */
 
+# pragma once
+
 #ifndef MXNETCPP_H_
 #define MXNETCPP_H_
 

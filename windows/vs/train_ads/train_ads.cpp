@@ -3,6 +3,7 @@
 */
 # include "train_ads.h"
 # include "MxNetCpp.h"
+# include "MLP.h"
 # include "util.h"
 # include "data.h"
 
@@ -12,9 +13,9 @@ using namespace mxnet::cpp;
 
 TrainAds::TrainAds()
 {
-    batchSize = 300;
-    sampleSize = 601;
-    epochCount = 1;
+    batch_size = 300;
+    sample_size = 601;
+    epoch_count = 1;
 
     grad_req_type.resize(8);
     grad_req_type[0] = kNullOp;
@@ -139,7 +140,7 @@ void TrainAds::build_network()
     /*setup basic configs*/
     std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
     (*opt).SetParam("momentum", 0.9)
-        .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batchSize));
+        .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batch_size));
     //.SetParam("clip_gradient", 10);
     
     if (mode == sync_mode_t::Async)
@@ -149,7 +150,7 @@ void TrainAds::build_network()
     }
             
     in_args.resize(8);
-    arg_grad_store.resize(8);    
+    arg_grad_store.resize(8);
 
     in_args[1] = w1m;
     in_args[2] = b1m;
@@ -168,33 +169,33 @@ void TrainAds::build_network()
     arg_grad_store[7] = NDArray();
 
     bool init_kv = false;
-    for (int ITER = 0; ITER < epochCount; ++ITER) 
+    for (int ITER = 0; ITER < epoch_count; ++ITER) 
     {                     
-        DataReader *dataReader = get_file_reader(file_name, batchSize, sampleSize, kv->GetRank(), kv->GetNumWorkers());        
+        DataReader *dataReader = get_file_reader(file_name, batch_size, sample_size, kv->GetRank(), kv->GetNumWorkers());        
 
         while (!dataReader->Eof())
         {
             // read data in
             auto r = dataReader->ReadBatch();
-            size_t nSamples = r.size() / sampleSize;
+            size_t nSamples = r.size() / sample_size;
             vector<float> data_vec, label_vec;
             processed_sample_count += nSamples;
             CHECK(!r.empty());
             for (int i = 0; i < nSamples; i++) 
             {
-                float * rp = r.data() + sampleSize * i;
+                float * rp = r.data() + sample_size * i;
                 label_vec.push_back(*rp);
-                data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
+                data_vec.insert(data_vec.end(), rp + 1, rp + sample_size);
             }
             r.clear();            
 
             const float *dptr = data_vec.data();
             const float *lptr = label_vec.data();
-            NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
+            NDArray dataArray = NDArray(Shape(nSamples, sample_size - 1),
                 ctx_cpu, false);
             NDArray labelArray =
                 NDArray(Shape(nSamples), ctx_cpu, false);
-            dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
+            dataArray.SyncCopyFromCPU(dptr, nSamples * (sample_size - 1));
             labelArray.SyncCopyFromCPU(lptr, nSamples);
             in_args[0] = dataArray;
             in_args[7] = labelArray;
@@ -245,7 +246,7 @@ void TrainAds::build_network()
             LG << "Iter " << ITER
                 << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
                 << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-                << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader->recordCount() << "%]";
+                << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count / dataReader->recordCount() << "%]";
             
             exe->Backward();
             
@@ -359,8 +360,8 @@ void TrainAds::build_network()
     
     auto start_time = std::chrono::system_clock::now();
     
-    batchSize = 499 * 1024 / sizeof(mx_float);        
-    DataReader * dataReader = get_file_reader(file_name, batchSize, sampleSize, kv->GetRank(), kv->GetNumWorkers());
+    batch_size = 499 * 1024 / sizeof(mx_float);        
+    DataReader * dataReader = get_file_reader(file_name, batch_size, sample_size, kv->GetRank(), kv->GetNumWorkers());
 
     string temp_out_file = output_file + ".part" + to_string(kv->GetRank());    
     auto output_stream = dmlc::Stream::Create(temp_out_file.c_str(), "w", true);
@@ -369,25 +370,25 @@ void TrainAds::build_network()
     {        
         // read data in
         auto r = dataReader->ReadBatch();
-        size_t nSamples = r.size() / sampleSize;
+        size_t nSamples = r.size() / sample_size;
         vector<float> data_vec, label_vec;
         processed_sample_count += nSamples;
         CHECK(!r.empty());
         for (int i = 0; i < nSamples; i++) 
         {
-            float * rp = r.data() + sampleSize * i;
+            float * rp = r.data() + sample_size * i;
             label_vec.push_back(*rp);
-            data_vec.insert(data_vec.end(), rp + 1, rp + sampleSize);
+            data_vec.insert(data_vec.end(), rp + 1, rp + sample_size);
         }
         r.clear();        
 
         const float *dptr = data_vec.data();
         const float *lptr = label_vec.data();
-        NDArray dataArray = NDArray(Shape(nSamples, sampleSize - 1),
+        NDArray dataArray = NDArray(Shape(nSamples, sample_size - 1),
             ctx_cpu, false);
         NDArray labelArray =
             NDArray(Shape(nSamples), ctx_cpu, false);
-        dataArray.SyncCopyFromCPU(dptr, nSamples * (sampleSize - 1));
+        dataArray.SyncCopyFromCPU(dptr, nSamples * (sample_size - 1));
         labelArray.SyncCopyFromCPU(lptr, nSamples);
         in_args[0] = dataArray;
         in_args[7] = labelArray;
@@ -408,7 +409,7 @@ void TrainAds::build_network()
         
         LG  << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
             << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-            << "\tProgress: [" << processed_sample_count * 100.0 / epochCount / dataReader->recordCount() << "%]";
+            << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count / dataReader->recordCount() << "%]";
 
         int sample_count = labelArray.GetShape()[0];
         
