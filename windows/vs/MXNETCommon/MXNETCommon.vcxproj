@@ -118,6 +118,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\include\MLP.cpp" />
+	<ClCompile Include="..\..\..\include\optimizer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\base.h" />
@@ -136,7 +137,6 @@
     <ClInclude Include="..\..\..\include\operator.h" />
     <ClInclude Include="..\..\..\include\operator.hpp" />
     <ClInclude Include="..\..\..\include\optimizer.h" />
-    <ClInclude Include="..\..\..\include\optimizer.hpp" />
     <ClInclude Include="..\..\..\include\op_map.h" />
     <ClInclude Include="..\..\..\include\shape.h" />
     <ClInclude Include="..\..\..\include\symbol.h" />

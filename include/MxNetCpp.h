@@ -7,15 +7,10 @@
 
 # pragma once
 
-#ifndef MXNETCPP_H_
-#define MXNETCPP_H_
-
 #include "executor.hpp"
 #include "symbol.hpp"
 #include "ndarray.hpp"
 #include "operator.hpp"
-#include "optimizer.hpp"
+#include "optimizer.h"
 #include "kvstore.hpp"
 #include "op.h"
-
-#endif  // MXNETCPP_H_
