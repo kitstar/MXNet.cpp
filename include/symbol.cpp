@@ -4,17 +4,16 @@
  * \brief implementation of the symbol
  * \author Zhang Chen, Chuntao Hong
  */
-
-#ifndef MXNETCPP_SYMBOL_HPP
-#define MXNETCPP_SYMBOL_HPP
+#include "symbol.h"
 
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "executor.h"
 #include "logging.h"
-#include "symbol.h"
+
 
 namespace mxnet {
 namespace cpp {
@@ -303,5 +302,3 @@ Executor *Symbol::Bind(const Context &context,
 }
 }  // namespace cpp
 }  // namespace mxnet
-
-#endif  // MXNETCPP_SYMBOL_HPP

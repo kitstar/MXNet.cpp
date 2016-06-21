@@ -2,21 +2,15 @@
  *  Copyright (c) 2016 by Contributors
  * \file kvstore.hpp
  * \brief implementation of kvstore
- * \author Xin Li
+ * \author Xin Li, Cheng CHEN
  */
-# pragma once
+# include "kvstore.h"
 
 #include <algorithm>
 #include <map>
-#include <numeric>
 #include <string>
 #include <vector>
 
-#include "kvstore.h"
-#include "optimizer.h"
-
-#ifndef KVSTORE_HPP
-#define KVSTORE_HPP
 
 namespace mxnet {
 namespace cpp {
@@ -206,5 +200,3 @@ std::string KVStore::GetRole() const {
 
 }  // namespace cpp
 }  // namespace mxnet
-
-#endif  // KVSTORE_HPP

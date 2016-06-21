@@ -7,10 +7,10 @@
 
 # pragma once
 
-#include "executor.hpp"
-#include "symbol.hpp"
-#include "ndarray.hpp"
-#include "operator.hpp"
+#include "executor.h"
+#include "symbol.h"
+#include "ndarray.h"
+#include "operator.h"
 #include "optimizer.h"
-#include "kvstore.hpp"
+#include "kvstore.h"
 #include "op.h"

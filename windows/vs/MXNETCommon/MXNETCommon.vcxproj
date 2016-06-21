@@ -118,29 +118,29 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\include\MLP.cpp" />
-	<ClCompile Include="..\..\..\include\optimizer.cpp" />
+    <ClCompile Include="..\..\..\include\optimizer.cpp" />
+    <ClCompile Include="..\..\..\include\executor.cpp" />
+    <ClCompile Include="..\..\..\include\ndarray.cpp" />
+    <ClCompile Include="..\..\..\include\kvstore.cpp" />
+    <ClCompile Include="..\..\..\include\symbol.cpp" />
+	<ClCompile Include="..\..\..\include\operator.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\base.h" />
     <ClInclude Include="..\..\..\include\c_api.h" />
     <ClInclude Include="..\..\..\include\data.h" />
     <ClInclude Include="..\..\..\include\executor.h" />
-    <ClInclude Include="..\..\..\include\executor.hpp" />
     <ClInclude Include="..\..\..\include\kvstore.h" />
-    <ClInclude Include="..\..\..\include\kvstore.hpp" />
     <ClInclude Include="..\..\..\include\logging.h" />
     <ClInclude Include="..\..\..\include\MLP.h" />
     <ClInclude Include="..\..\..\include\MxNetCpp.h" />
     <ClInclude Include="..\..\..\include\ndarray.h" />
-    <ClInclude Include="..\..\..\include\ndarray.hpp" />
     <ClInclude Include="..\..\..\include\op.h" />
-    <ClInclude Include="..\..\..\include\operator.h" />
-    <ClInclude Include="..\..\..\include\operator.hpp" />
+    <ClInclude Include="..\..\..\include\operator.h" />    
     <ClInclude Include="..\..\..\include\optimizer.h" />
     <ClInclude Include="..\..\..\include\op_map.h" />
     <ClInclude Include="..\..\..\include\shape.h" />
     <ClInclude Include="..\..\..\include\symbol.h" />
-    <ClInclude Include="..\..\..\include\symbol.hpp" />
     <ClInclude Include="..\..\..\include\util.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

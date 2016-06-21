@@ -5,9 +5,6 @@
  * \author Zhang Chen, Chuntao Hong
  */
 
-#ifndef MXNETCPP_NDARRAY_HPP
-#define MXNETCPP_NDARRAY_HPP
-
 #include <map>
 #include <string>
 #include <vector>
@@ -373,5 +370,3 @@ Context NDArray::GetContext() const {
 }
 }  // namespace cpp
 }  // namespace mxnet
-
-#endif  // MXNETCPP_NDARRAY_HPP
