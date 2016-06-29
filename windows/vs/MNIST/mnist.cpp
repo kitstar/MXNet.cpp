@@ -7,11 +7,11 @@ using namespace mxnet::cpp;
 
 Mnist::Mnist()
 {
-    learning_rate_ = chana_config_get_value_double(mxnet_section.c_str(), "Learning Rate", 1e-4, "");
-    weight_decay_ = chana_config_get_value_double(mxnet_section.c_str(), "Weight Decay", 1e-4, "");
-    image_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "Image Size", 28 * 28, "");
-    batch_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "Batch Size", 100, "");
+    learning_rate_ = chana_config_get_value_double(mxnet_section.c_str(), "learning_rate", 1e-4, "");
+    weight_decay_ = chana_config_get_value_double(mxnet_section.c_str(), "weight_decay", 1e-4, "");
+    image_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "image_size", 28 * 28, "");    
     epoch_count_ = chana_config_get_value_uint64(mxnet_section.c_str(), "epoch_count", 1, "");
+    batch_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "batch_size", 1, "");
 }
 
 /* virtual */ Symbol Mnist::BuildNetwork()
