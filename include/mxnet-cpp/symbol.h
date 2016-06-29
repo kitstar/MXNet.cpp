@@ -11,9 +11,9 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "base.h"
-#include "ndarray.h"
-#include "op_map.h"
+#include "mxnet-cpp/base.h"
+#include "mxnet-cpp/ndarray.h"
+#include "mxnet-cpp/op_map.h"
 
 namespace mxnet {
 namespace cpp {
@@ -52,8 +52,6 @@ struct SymBlob {
 */
 class Symbol {
  public:
-  // TODO(zhangcheng-qinyinghua)
-  // add more input in a single operator
   Symbol() {}
   /*!
   * \brief construct a Symbol with SymbolHandle
@@ -64,11 +62,21 @@ class Symbol {
   * \brief construct a variable Symbol
   * \param name the name of the variable
   */
+  explicit Symbol(const char *name);
+  /*!
+  * \brief construct a variable Symbol
+  * \param name the name of the variable
+  */
   explicit Symbol(const std::string &name);
   Symbol operator+(const Symbol &rhs);
   Symbol operator-(const Symbol &rhs);
   Symbol operator*(const Symbol &rhs);
   Symbol operator/(const Symbol &rhs);
+
+  Symbol operator+(mx_float scalar);
+  Symbol operator-(mx_float scalar);
+  Symbol operator*(mx_float scalar);
+  Symbol operator/(mx_float scalar);
   Symbol Copy() const;
   /*!
   * \brief construct a variable Symbol

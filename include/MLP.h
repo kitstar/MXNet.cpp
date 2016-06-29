@@ -6,8 +6,8 @@
 */
 
 # pragma once
-# include "ndarray.h"
-# include "symbol.h"
+# include "mxnet-cpp/ndarray.h"
+# include "mxnet-cpp/symbol.h"
 # include "data.h"
 
 enum class sync_mode_t

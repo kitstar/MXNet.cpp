@@ -9,7 +9,7 @@
 #include <vector>
 #include <memory>
 
-#include "logging.h"
+#include "dmlc/logging.h"
 #include "dmlc/io.h"
 
 class DataReader {

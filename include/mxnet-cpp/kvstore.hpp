@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
-#include "kvstore.h"
-#include "optimizer.h"
+#include "mxnet-cpp/kvstore.h"
+#include "mxnet-cpp/optimizer.h"
 
 #ifndef KVSTORE_HPP
 #define KVSTORE_HPP
@@ -24,7 +24,7 @@ namespace private_ {
   KVStore *kvstore = nullptr;
 
   extern "C"
-  void controller(int head, const char* body) {
+  void controller(int head, const char* body, void * controller_handle) {
     if (kvstore == nullptr) {
       return;
     }
@@ -54,15 +54,22 @@ KVStore::KVStore(const std::string& name) {
   CHECK_EQ(MXKVStoreCreate(name.c_str(), &handle_), 0);
 }
 
-KVStore::KVStore(KVStore &&kv) {
-    optimizer_ = std::move(kv.optimizer_);
-    handle_ = kv.handle_;
-    kv.handle_ = nullptr;
+KVStore::KVStore(bool async, const std::string& machine_list_path, int server_count)
+  std::string name = async ? "dist_async" : "dist_sync";
+  name += "#" + machine_list_path;
+  name += "#" + std::to_string(server_count);
+  CHECK_EQ(MXKVStoreCreate(name.c_str(), &handle_), 0);
 }
 
-void KVStore::RunServer() {  
+KVStore::KVStore(KVStore &&kv) {
+  optimizer_ = std::move(kv.optimizer_);
+  handle_ = kv.handle_;
+  kv.handle_ = nullptr;
+}
+
+void KVStore::RunServer() {
   private_::kvstore = this;
-  CHECK_EQ(MXKVStoreRunServer(handle_, &private_::controller), 0);
+  CHECK_EQ(MXKVStoreRunServer(handle_, &private_::controller, 0), 0);
 }
 
 void KVStore::Init(int key, const NDArray& val) {
@@ -154,20 +161,14 @@ namespace private_ {
   }
 }
 
-void KVStore::SetOptimizer(std::unique_ptr<Optimizer> optimizer, bool is_local) {
-  if (!is_local) {
-    CHECK_EQ(MXKVStoreSendCommmandToServers(handle_, 0, (*optimizer).Serialize().c_str()), 0);
-  } else {
+void KVStore::SetOptimizer(std::unique_ptr<Optimizer> optimizer, bool local) {
+  if (local) {
     optimizer_ = std::move(optimizer);
     CHECK_EQ(MXKVStoreSetUpdater(handle_, &private_::updater, optimizer_.get()), 0);
+  } else {
+    CHECK_EQ(MXKVStoreSendCommmandToServers(handle_, 0, (*optimizer).Serialize().c_str()), 0);
   }
 }
-
-void KVStore::Barrier() const
-{
-    CHECK_EQ(MXKVStoreBarrier(handle_), 0);
-}
-
 
 std::string KVStore::GetType() const {
   const char *type;
@@ -186,6 +187,10 @@ int KVStore::GetNumWorkers() const {
   int num_workers;
   CHECK_EQ(MXKVStoreGetGroupSize(handle_, &num_workers), 0);
   return num_workers;
+}
+
+void KVStore::Barrier() const {
+  CHECK_EQ(MXKVStoreBarrier(handle_), 0);
 }
 
 std::string KVStore::GetRole() const {

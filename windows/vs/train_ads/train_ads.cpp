@@ -2,7 +2,7 @@
 * Copyright (c) 2015 by Contributors
 */
 # include "train_ads.h"
-# include "MxNetCpp.h"
+# include "mxnet-cpp/MxNetCpp.h"
 # include "util.h"
 # include "data.h"
 
