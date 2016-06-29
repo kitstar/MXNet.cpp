@@ -92,6 +92,36 @@ void merge_files(std::string final_name, int count)
     return ret;
 }
 
+/* static */ KVStore * Mlp::InitializeKvstore(sync_mode_t mode, std::string machine_list, std::string ps_per_machine)
+{
+    string ret;
+    KVStore *kv = nullptr;
+    switch (mode)
+    {
+    case (sync_mode_t::Local) :
+        ret = "local";
+        kv = new KVStore(ret);        
+        return kv;
+
+    case (sync_mode_t::Sync) :
+        ret = "dist_sync#";
+        ret += machine_list + "#" + ps_per_machine;
+        kv = new KVStore(ret);        
+        return kv;        
+
+    case (sync_mode_t::Async) :
+        ret = "dist_async#";
+        ret += machine_list + "#" + ps_per_machine;
+        kv = new KVStore(ret);
+        kv->RunServer();
+        return kv;
+
+    default:
+        LG << "Invalid parameter server sync mode!";        
+    }
+    return nullptr;
+}
+
 double Mlp::Accuracy(const NDArray& result, const NDArray& labels)
 {
     result.WaitToRead();
@@ -111,7 +141,7 @@ double Mlp::Accuracy(const NDArray& result, const NDArray& labels)
 double Mlp::ValAccuracy(Symbol mlp,
     const NDArray& samples,
     const NDArray& labels)
-{
+{    
     /*
     size_t nSamples = samples.GetShape()[0];
     size_t nCorrect = 0;

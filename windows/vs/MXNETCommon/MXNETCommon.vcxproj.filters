@@ -33,6 +33,9 @@
     <ClCompile Include="..\..\..\include\symbol.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\include\operator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\MLP.h">
@@ -82,9 +85,6 @@
     </ClInclude>
     <ClInclude Include="..\..\..\include\MxNetCpp.h">
       <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\operator.cpp">
-      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

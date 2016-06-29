@@ -10,6 +10,7 @@
 
 #include <vector>
 #include "base.h"
+#include "kvstore.h"
 #include "symbol.h"
 
 namespace mxnet {
@@ -75,6 +76,8 @@ class Executor {
   */
   void UpdateAll(Optimizer *opt, float lr, float wd, int arg_update_begin = 1,
                  int arg_update_end = -1);
+ 
+
   /*!
   * \brief destructor, free the handle
   */

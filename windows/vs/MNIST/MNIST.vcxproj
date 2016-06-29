@@ -19,8 +19,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{24727AE8-1A23-4F19-B077-4929CD8F0168}</ProjectGuid>
-    <RootNamespace>MXNETCommon</RootNamespace>
+    <ProjectGuid>{AF9DC24D-2DBE-43FF-80C6-8CEDD8682570}</ProjectGuid>
+    <RootNamespace>MNIST</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -30,7 +30,7 @@
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v120</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
@@ -81,11 +81,13 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(SolutionDir)\..\..\3rdparty\chana;$(SolutionDir)\..\..\..\include;$(SolutionDir)\..\..\3rdparty\openblas\include;$(SolutionDir)\..\..\..\dmlc-core\include;$(SolutionDir)\..\..\..\dmlc-core\src;$(SolutionDir)\..\..\3rdparty\hdfs\include</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_SCL_SECURE_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..\..\3rdparty\chana;$(SolutionDir)\..\..\..\include;$(SolutionDir)\..\..\..\dmlc-core\include</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>jvm.lib;hdfs.lib;libmxnet.lib;chanalib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)\..\..\..\lib\windows;$(SolutionDir)\..\..\3rdparty\hdfs\bin;D:\kit\github\MXNET\build\Debug\;D:\Kit\Src\Ads\chana\x64\Debug</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -117,31 +119,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\include\MLP.cpp" />
-    <ClCompile Include="..\..\..\include\optimizer.cpp" />
-    <ClCompile Include="..\..\..\include\executor.cpp" />
-    <ClCompile Include="..\..\..\include\ndarray.cpp" />
-    <ClCompile Include="..\..\..\include\kvstore.cpp" />
-    <ClCompile Include="..\..\..\include\symbol.cpp" />
-    <ClCompile Include="..\..\..\include\operator.cpp" />
+    <ProjectReference Include="..\..\..\dmlc-core\windows\dmlccore.vcxproj">
+      <Project>{deafbf3d-a308-4ce5-949c-c8b1e7db88c9}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\MXNETCommon\MXNETCommon.vcxproj">
+      <Project>{24727ae8-1a23-4f19-b077-4929cd8f0168}</Project>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\include\base.h" />
-    <ClInclude Include="..\..\..\include\c_api.h" />
-    <ClInclude Include="..\..\..\include\data.h" />
-    <ClInclude Include="..\..\..\include\executor.h" />
-    <ClInclude Include="..\..\..\include\kvstore.h" />
-    <ClInclude Include="..\..\..\include\logging.h" />
-    <ClInclude Include="..\..\..\include\MLP.h" />
-    <ClInclude Include="..\..\..\include\MxNetCpp.h" />
-    <ClInclude Include="..\..\..\include\ndarray.h" />
-    <ClInclude Include="..\..\..\include\op.h" />
-    <ClInclude Include="..\..\..\include\operator.h" />
-    <ClInclude Include="..\..\..\include\optimizer.h" />
-    <ClInclude Include="..\..\..\include\op_map.h" />
-    <ClInclude Include="..\..\..\include\shape.h" />
-    <ClInclude Include="..\..\..\include\symbol.h" />
-    <ClInclude Include="..\..\..\include\util.h" />
+    <ClCompile Include="mnist.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="mnist.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

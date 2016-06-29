@@ -13,9 +13,9 @@ using namespace mxnet::cpp;
 
 TrainAds::TrainAds()
 {
-    batch_size = 300;
+    batch_size_ = 300;
     sample_size = 601;
-    epoch_count = 1;
+    epoch_count_ = 1;
 
     grad_req_type.resize(8);
     grad_req_type[0] = kNullOp;
@@ -140,7 +140,7 @@ void TrainAds::build_network()
     /*setup basic configs*/
     std::unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate, weight_decay));
     (*opt).SetParam("momentum", 0.9)
-        .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batch_size));
+        .SetParam("rescale_grad", 1.0 / (kv->GetNumWorkers() * batch_size_));
     //.SetParam("clip_gradient", 10);
     
     if (mode == sync_mode_t::Async)
@@ -169,9 +169,9 @@ void TrainAds::build_network()
     arg_grad_store[7] = NDArray();
 
     bool init_kv = false;
-    for (int ITER = 0; ITER < epoch_count; ++ITER) 
+    for (int ITER = 0; ITER < epoch_count_; ++ITER) 
     {                     
-        DataReader *dataReader = get_file_reader(file_name, batch_size, sample_size, kv->GetRank(), kv->GetNumWorkers());        
+        DataReader *dataReader = get_file_reader(file_name, batch_size_, sample_size, kv->GetRank(), kv->GetNumWorkers());
 
         while (!dataReader->Eof())
         {
@@ -246,7 +246,7 @@ void TrainAds::build_network()
             LG << "Iter " << ITER
                 << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
                 << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-                << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count / dataReader->recordCount() << "%]";
+                << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count_ / dataReader->recordCount() << "%]";
             
             exe->Backward();
             
@@ -360,8 +360,8 @@ void TrainAds::build_network()
     
     auto start_time = std::chrono::system_clock::now();
     
-    batch_size = 499 * 1024 / sizeof(mx_float);        
-    DataReader * dataReader = get_file_reader(file_name, batch_size, sample_size, kv->GetRank(), kv->GetNumWorkers());
+    batch_size_ = 499 * 1024 / sizeof(mx_float);
+    DataReader * dataReader = get_file_reader(file_name, batch_size_, sample_size, kv->GetRank(), kv->GetNumWorkers());
 
     string temp_out_file = output_file + ".part" + to_string(kv->GetRank());    
     auto output_stream = dmlc::Stream::Create(temp_out_file.c_str(), "w", true);
@@ -409,7 +409,7 @@ void TrainAds::build_network()
         
         LG  << ", accuracy: " << Accuracy(exe->outputs[0], labelArray)
             << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-            << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count / dataReader->recordCount() << "%]";
+            << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count_ / dataReader->recordCount() << "%]";
 
         int sample_count = labelArray.GetShape()[0];
         
