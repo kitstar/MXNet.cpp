@@ -100,7 +100,7 @@ void merge_files(std::string final_name, int count)
     {
     case (sync_mode_t::Local) :
         ret = "local";
-        kv = new KVStore(ret);        
+        kv = new KVStore(ret);
         return kv;
 
     case (sync_mode_t::Sync) :

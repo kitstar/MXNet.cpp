@@ -40,7 +40,7 @@ public:
         ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
         running_mode_(sync_mode_t::Local), running_op_(RunningMethods::kInvalid)
     {
-        auto mode = chana_config_get_value_string(mxnet_section.c_str(), "running mode", "local", "");
+        auto mode = chana_config_get_value_string(mxnet_section.c_str(), "running_mode", "local", "");
         if (strcmp(mode, "async") == 0) running_mode_ = sync_mode_t::Async;
         else if (strcmp(mode, "sync") == 0) running_mode_ = sync_mode_t::Sync;
 
@@ -113,8 +113,9 @@ protected:
     
     mxnet::cpp::Context ctx_cpu;
     mxnet::cpp::Context ctx_dev;        
-    
-    mxnet::cpp::Symbol mlp;    
+        
+    std::map<std::string, mxnet::cpp::NDArray> args_map;
+
     int batch_size_;
     int sample_size;
     int epoch_count_;

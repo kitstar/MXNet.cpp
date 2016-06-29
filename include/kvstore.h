@@ -23,7 +23,7 @@ class KVStore {
   KVStore(const KVStore &) = delete;  
   KVStore(KVStore &&);
   void RunServer();
-  inline void Init(int key, const NDArray& val);
+  void Init(int key, const NDArray& val);
   void Init(const std::vector<int>& keys, const std::vector<NDArray>& vals);
   void Push(int key, const NDArray& val, int priority = 0);
   void Push(const std::vector<int>& keys,

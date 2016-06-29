@@ -26,6 +26,8 @@ private:
 	std::vector<mxnet::cpp::NDArray> in_args;
 	std::vector<mxnet::cpp::NDArray> arg_grad_store;
 	std::vector<mxnet::cpp::OpReqType> grad_req_type;
+
+    mxnet::cpp::Symbol mlp;
         
     double learning_rate = 0.01;
     double weight_decay = 1e-5;    

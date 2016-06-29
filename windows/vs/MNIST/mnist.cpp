@@ -51,11 +51,12 @@ Mnist::Mnist()
     lenet.InferArgsMap(ctx_dev, &args_map, args_map);
 
 # if !defined(NDEBUG)
-    for (auto s : args_map)
+    for (auto &s : lenet.ListArguments())
     {
-        cout << s.first << " : " << s.second.GetShape().at(0);
-        for (size_t it = 1; it < s.second.GetShape().size(); ++it)
-            cout << " * " << s.second.GetShape().at(it);
+        auto &e = args_map[s];
+        cout << s << " : " << e.GetShape().at(0);
+        for (size_t it = 1; it < e.GetShape().size(); ++it)
+            cout << " * " << e.GetShape().at(it);
         cout << endl;
     }
 # endif
@@ -98,45 +99,62 @@ Mnist::Mnist()
     CHECK(!input_image_data.empty());
 
     string input_label_data = chana_config_get_value_string(mxnet_section.c_str(), "label_data", "", "");
-    CHECK(!input_label_data.empty());    
+    CHECK(!input_label_data.empty());
 
-    auto lenet = BuildNetwork();    
+    unique_ptr<Optimizer> opt(new Optimizer("ccsgd", learning_rate_, weight_decay_));
+    opt->SetParam("momentum", 0.9).SetParam("rescale_grad", 1.0 / (kv_store->GetNumWorkers() * batch_size_)).SetParam("clip_gradient", 10);
 
-    Optimizer opt("ccsgd", learning_rate_, weight_decay_);
-    opt.SetParam("momentum", 0.9).SetParam("rescale_grad", 1.0 / (kv_store->GetNumWorkers() * batch_size_)).SetParam("clip_gradient", 10);
-    
-    auto start_time = std::chrono::system_clock::now();
-    /*
-    // Initialize Parameters    
-    vector<NDArray> parameters;    
-    int indice = 0;
-    for (auto &e : args_map)
-    {        
-        parameters.push_back(e.second);
-        
-        if (e.first != "Data" && e.first != "Label" && running_mode_ != sync_mode_t::Sync)
-        {
-            kv_store->Init(i, e.second)
-        }
-        ++indice;
-    }
-    
-    
-    
-    switch (running_mode_)
+    if (running_mode_ == sync_mode_t::Async)
     {
-        case (sync_mode_t::Sync) :
-            kv_store->AllReduce(&parameters);
-            break;
-        
-        case (sync_mode_t::Async) :
-            kv_store->Init(indices, parameters);
-            kv_store->Pull(indices, &parameters);
-            break;
+        kv_store->SetOptimizer(std::move(opt));
+        kv_store->Barrier();
+    }
+
+    auto lenet = BuildNetwork();
+
+    // Simple Bind will initialize the parameter with SampleGaussian(0, 1)
+    auto exe = lenet.SimpleBind(ctx_dev, args_map);
+
+    auto start_time = std::chrono::system_clock::now();
+
+    // Initialize Parameters    
+    vector<NDArray> parameters;
+    vector<NDArray> gradients;
+
+    {
+        auto arguments = lenet.ListArguments();
+        for (size_t idx = 0; idx < arguments.size(); ++idx)
+        {
+            auto &name = arguments[idx];
+            if (name != "Data" && name != "Label")
+            {
+                parameters.push_back(exe->arg_arrays[idx]);
+                gradients.push_back(exe->grad_arrays[idx]);
+            }
+        }
+    }
+
+    if (running_mode_ != sync_mode_t::Sync)
+    {
+        for (size_t idx = 0; idx < parameters.size(); ++idx)
+        {
+            kv_store->Init(idx, parameters[idx]);
+            kv_store->Pull(idx, &parameters[idx]);
+        }
+    }
+    else
+    {
+        if (kv_store->GetRank() != 0)
+        {
+            for (size_t idx = 0; idx < parameters.size(); ++idx)
+                parameters[idx] = 0;
+        }
+
+        NDArray::WaitAll();
+        kv_store->AllReduce(&parameters);
     }
     
 
-    */
     for (int current_epoch = 0; current_epoch < epoch_count_; ++current_epoch)
     {
         DataReader *dataReader = get_file_reader(input_image_data, batch_size_, 28 * 28, kv_store->GetRank(), kv_store->GetNumWorkers());
@@ -154,30 +172,29 @@ Mnist::Mnist()
             args_map["Data"].SyncCopyFromCPU(data.data(), batch_size_ * image_size_);
             args_map["Label"].SyncCopyFromCPU(label.data(), batch_size_);
             NDArray::WaitAll();
-
-            auto exe = lenet.SimpleBind(ctx_dev, args_map);
+            
             exe->Forward(true);
             exe->Backward();
             
-            if (running_mode_ == sync_mode_t::Sync)
+            if (running_mode_ != sync_mode_t::Sync)
             {
-                kv_store->AllReduce(&exe->grad_arrays);
-                int i = 0;
-                for (auto &e : args_map)
+                // Parameter Server Method
+                for (size_t idx = 0; idx < parameters.size(); ++idx)
                 {
-                    if (e.first != "Data" && e.first != "Label")
-                    {
-                        exe->grad_arrays[i].WaitToRead();
-                        exe->arg_arrays[i].WaitToWrite();
-                        opt.Update(i, exe->arg_arrays[i], exe->grad_arrays[i]);                        
-                    }
-                    ++i;
+                    kv_store->Push(idx, gradients[idx]);
+                    kv_store->Pull(idx, &parameters[idx]);
                 }
-                for (size_t i = 0; i < indices.size(); i++)
-                    
-                    {
-                        
-                    }
+            }
+            else
+            {
+                // Allreduce Method
+                kv_store->AllReduce(&gradients);
+                for (size_t idx = 0; idx < parameters.size(); ++idx)
+                {
+                    gradients[idx].WaitToRead();
+                    parameters[idx].WaitToWrite();
+                    opt->Update(idx, parameters[idx], gradients[idx]);
+                }
             }
             
             processed_sample_count += readed_sample_count;
@@ -187,13 +204,14 @@ Mnist::Mnist()
             LG << "Iter " << current_epoch
                 << ", accuracy: " << Accuracy(exe->outputs[0], args_map["Label"]) * 100 << "%"
                 << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
-                << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count_ / dataReader->recordCount() << "%]";
-            
-            delete exe;
+                << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count_ / dataReader->recordCount() << "%]";            
         }
 
         delete dataReader;
+        delete labelReader;
     }
+
+    delete exe;
 }
 
 
@@ -204,10 +222,6 @@ int main(int argc, const char *argv[])
 {
     LG << "Usage:";
     LG << "\tFor distributed training: " << argv[0] << " machine_list  server_count_per_machine" << endl;    
-
-# if !defined(NDEBUG)
-    getchar();
-# endif
 
     auto chana_config = getenv("CHANA_CONFIG_FILE");
     if (chana_config != nullptr)

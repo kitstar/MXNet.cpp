@@ -31,13 +31,7 @@ protected:
     { }
 
 
-protected:
-    std::vector<mxnet::cpp::NDArray> network_args;
-    std::vector<mxnet::cpp::NDArray> arg_grad_store;
-    std::vector<mxnet::cpp::OpReqType> grad_req_type;
-
-    std::map<std::string, mxnet::cpp::NDArray> args_map;
-
+protected:    
     float learning_rate_;
     float weight_decay_;
     int image_size_;    
