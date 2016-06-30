@@ -122,6 +122,62 @@ void merge_files(std::string final_name, int count)
     return nullptr;
 }
 
+/* virtual */ bool Mlp::LoadModel(const string &model_name, vector<NDArray> &parameters)
+{
+    dmlc::Stream *stream = nullptr;
+    size_t s;
+    get_file_stream(model_name, stream, &s, "r");
+    
+    mx_float *temp_store = nullptr;
+    bool ret = true;
+
+    for (size_t idx = 0; idx < parameters.size(); ++idx)
+    {
+        size_t matrix_size = 1;
+        for (auto shape : parameters[idx].GetShape())
+        {
+            matrix_size *= shape;
+        }        
+
+        realloc(temp_store, matrix_size *  sizeof(mx_float));
+        auto readed_size = stream->Read(temp_store, matrix_size *  sizeof(mx_float));
+        if (readed_size != matrix_size *  sizeof(mx_float))
+        {
+            ret = false;
+        }
+        
+        parameters[idx].SyncCopyFromCPU(temp_store, matrix_size);
+        parameters[idx].WaitToRead();
+    }
+
+    free(temp_store);
+    delete stream;
+    return ret;
+}
+
+
+/* virtual */ bool Mlp::SaveModel(const string &model_name, vector<NDArray> &parameters)
+{
+    size_t s;
+    dmlc::Stream *stream = nullptr;    
+    get_file_stream(model_name, stream, &s, "w");        
+
+    for (size_t idx = 0; idx < parameters.size(); ++idx)
+    {
+        size_t matrix_size = 1;
+        for (auto shape : parameters[idx].GetShape())
+        {
+            matrix_size *= shape;
+        }
+        stream->Write(parameters[idx].GetData(), matrix_size * sizeof(mx_float));
+    }
+    
+    delete stream;
+    
+    return true;
+}
+
+
 double Mlp::Accuracy(const NDArray& result, const NDArray& labels)
 {
     result.WaitToRead();

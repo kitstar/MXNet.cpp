@@ -11,7 +11,7 @@ Mnist::Mnist()
     weight_decay_ = chana_config_get_value_double(mxnet_section.c_str(), "weight_decay", 1e-4, "");
     image_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "image_size", 28 * 28, "");    
     epoch_count_ = chana_config_get_value_uint64(mxnet_section.c_str(), "epoch_count", 1, "");
-    batch_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "batch_size", 1, "");
+    batch_size_ = chana_config_get_value_uint64(mxnet_section.c_str(), "batch_size", 100, "");
 }
 
 /* virtual */ Symbol Mnist::BuildNetwork()
@@ -65,8 +65,9 @@ Mnist::Mnist()
 
 /* virtual */ double Mnist::Accuracy(const mxnet::cpp::NDArray &result, const mxnet::cpp::NDArray &labels)
 {    
+    // For Softmax output
+    
     result.WaitToRead();
-
     int cat_num = result.GetShape()[1];
     int sample_num = result.GetShape()[0];
     int nCorrect = 0;
@@ -116,8 +117,7 @@ Mnist::Mnist()
     auto exe = lenet.SimpleBind(ctx_dev, args_map);
 
     auto start_time = std::chrono::system_clock::now();
-
-    // Initialize Parameters    
+    
     vector<NDArray> parameters;
     vector<NDArray> gradients;
 
@@ -134,27 +134,42 @@ Mnist::Mnist()
         }
     }
 
-    if (running_mode_ != sync_mode_t::Sync)
+    string input_model_file = chana_config_get_value_string(mxnet_section.c_str(), "input_model", "", "");
+    if (input_model_file.empty())
     {
-        for (size_t idx = 0; idx < parameters.size(); ++idx)
+        // Initialize Parameters
+        if (running_mode_ != sync_mode_t::Sync)
         {
-            kv_store->Init(idx, parameters[idx]);
-            kv_store->Pull(idx, &parameters[idx]);
+            for (size_t idx = 0; idx < parameters.size(); ++idx)
+            {
+                parameters[idx].WaitToRead();
+                kv_store->Init(idx, parameters[idx]);
+                kv_store->Pull(idx, &parameters[idx]);
+            }
+        }
+        else
+        {
+            if (kv_store->GetRank() == 0)
+            {
+                // For Master, initialize the weights and bias if you need.
+            }
+            else
+            {
+                // For Slaves
+                for (size_t idx = 0; idx < parameters.size(); ++idx)
+                    parameters[idx] = 0;
+            }
+
+            NDArray::WaitAll();
+            kv_store->AllReduce(&parameters);
         }
     }
     else
     {
-        if (kv_store->GetRank() != 0)
-        {
-            for (size_t idx = 0; idx < parameters.size(); ++idx)
-                parameters[idx] = 0;
-        }
-
-        NDArray::WaitAll();
-        kv_store->AllReduce(&parameters);
+        LoadModel(input_model_file, parameters);
     }
-    
-
+        
+    // Start Training
     for (int current_epoch = 0; current_epoch < epoch_count_; ++current_epoch)
     {
         DataReader *dataReader = get_file_reader(input_image_data, batch_size_, 28 * 28, kv_store->GetRank(), kv_store->GetNumWorkers());
@@ -174,7 +189,7 @@ Mnist::Mnist()
             NDArray::WaitAll();
             
             exe->Forward(true);
-            exe->Backward();
+            exe->Backward();           
             
             if (running_mode_ != sync_mode_t::Sync)
             {
@@ -209,6 +224,17 @@ Mnist::Mnist()
 
         delete dataReader;
         delete labelReader;
+    }
+
+    kv_store->Barrier();
+
+    if (kv_store->GetRank() == 0)
+    {
+        string output_model_name = chana_config_get_value_string(mxnet_section.c_str(), "output_model", "", "");
+        if (!output_model_name.empty())
+        {
+            SaveModel(output_model_name, parameters);
+        }
     }
 
     delete exe;

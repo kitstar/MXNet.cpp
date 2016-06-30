@@ -77,7 +77,7 @@ public:
 
     static std::string generate_kvstore_args(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);
 
-    static mxnet::cpp::KVStore * InitializeKvstore(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);
+    static mxnet::cpp::KVStore * InitializeKvstore(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);    
 
 protected:    
     virtual void load_model(std::string model_name) = 0;
@@ -95,6 +95,10 @@ protected:
         LG << "Not implement [BuildNetwork]!";
         exit(-1);
     }
+
+    virtual bool SaveModel(const std::string &model_name, std::vector<mxnet::cpp::NDArray> &parameters);
+    
+    virtual bool LoadModel(const std::string &model_name, std::vector<mxnet::cpp::NDArray> &parameters);
 
     virtual double ValAccuracy(mxnet::cpp::Symbol mlp,
         const mxnet::cpp::NDArray& samples,
