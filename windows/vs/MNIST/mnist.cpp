@@ -230,7 +230,7 @@ Mnist::Mnist()
 
     if (kv_store->GetRank() == 0)
     {
-        if (running_mode_ == sync_mode_t::Sync)
+        if (running_mode_ == sync_mode_t::Async)
             for (size_t idx = 0; idx < parameters.size(); ++idx)            
                 kv_store->Pull(idx, &parameters[idx]);
         
@@ -240,6 +240,7 @@ Mnist::Mnist()
             SaveModel(output_model_name, parameters);
         }
     }
+
     kv_store->Barrier();
 
     delete exe;

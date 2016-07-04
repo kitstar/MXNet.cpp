@@ -124,6 +124,8 @@ void merge_files(std::string final_name, int count)
 
 /* virtual */ bool Mlp::LoadModel(const string &model_name, vector<NDArray> &parameters)
 {
+    LG << "Load model from " << model_name << endl;
+    
     dmlc::Stream *stream = nullptr;
     size_t s;
     get_file_stream(model_name, stream, &s, "r");
@@ -139,7 +141,7 @@ void merge_files(std::string final_name, int count)
             matrix_size *= shape;
         }        
 
-        realloc(temp_store, matrix_size *  sizeof(mx_float));
+        temp_store = reinterpret_cast<mx_float *>(malloc(matrix_size *  sizeof(mx_float)));
         auto readed_size = stream->Read(temp_store, matrix_size *  sizeof(mx_float));
         if (readed_size != matrix_size *  sizeof(mx_float))
         {
@@ -148,9 +150,9 @@ void merge_files(std::string final_name, int count)
         
         parameters[idx].SyncCopyFromCPU(temp_store, matrix_size);
         parameters[idx].WaitToRead();
+        free(temp_store);
     }
 
-    free(temp_store);
     delete stream;
     return ret;
 }
@@ -158,6 +160,8 @@ void merge_files(std::string final_name, int count)
 
 /* virtual */ bool Mlp::SaveModel(const string &model_name, vector<NDArray> &parameters)
 {
+    LG << "Save model at " << model_name << endl;
+    
     size_t s;
     dmlc::Stream *stream = nullptr;    
     get_file_stream(model_name, stream, &s, "w");        
