@@ -230,12 +230,17 @@ Mnist::Mnist()
 
     if (kv_store->GetRank() == 0)
     {
+        if (running_mode_ == sync_mode_t::Sync)
+            for (size_t idx = 0; idx < parameters.size(); ++idx)            
+                kv_store->Pull(idx, &parameters[idx]);
+        
         string output_model_name = chana_config_get_value_string(mxnet_section.c_str(), "output_model", "", "");
         if (!output_model_name.empty())
         {
             SaveModel(output_model_name, parameters);
         }
     }
+    kv_store->Barrier();
 
     delete exe;
 }
