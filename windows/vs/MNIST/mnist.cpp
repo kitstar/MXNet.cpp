@@ -196,13 +196,12 @@ Mnist::Mnist()
     }
         
     // Start Training
+    size_t processed_sample_count = 0;
     for (int current_epoch = 0; current_epoch < epoch_count_; ++current_epoch)
     {
         // Skip Header Information for mnist dataset.
         auto dataReader = get_file_reader(input_image_data, batch_size_, 28 * 28, kv_store->GetRank(), kv_store->GetNumWorkers(), sizeof(uint32_t) * 4);
         auto labelReader = get_file_reader(input_label_data, batch_size_, 1, kv_store->GetRank(), kv_store->GetNumWorkers(), sizeof(uint32_t) * 2);
-
-        size_t processed_sample_count = 0;
         
         while (!dataReader->Eof())
         {
@@ -255,6 +254,12 @@ Mnist::Mnist()
     }
 
     kv_store->Barrier();
+
+    auto cur_time = std::chrono::system_clock::now();
+    auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time);
+    LG << "Total Sample: [" << processed_sample_count << "]"
+        << "\tSpeed: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() << "/s]"
+        << "\tTime: [" << elapse_in_ms.count() / 1000.0 << "s]";
 
     if (kv_store->GetRank() == 0)
     {
