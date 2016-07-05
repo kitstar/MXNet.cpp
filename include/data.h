@@ -19,7 +19,7 @@ public:
         int recordSize,
         int rank,
         int nsplit,
-        int batchSize)
+        int batchSize, int skip_offset = 0)
         : stream_(stream),
         streamSize_(streamSize),
         recordSize_(recordSize),
@@ -28,7 +28,9 @@ public:
         batchSize_(batchSize),
         reset_(false),
         eof_(false),
-        exit_(false) {
+        exit_(false),
+        skip_offset_(skip_offset) 
+    {
         ioThread_ = std::thread([this](){this->IOThread(); });
     }
     ~DataReader() {
@@ -63,7 +65,7 @@ public:
         r.swap(buffer_);
         condEmpty_.notify_one();
         return r;
-    }
+    }    
 
     inline int recordCount() { return recordCount_; }
 
@@ -71,10 +73,10 @@ private:
     void IOThread() {
         std::unique_lock<std::mutex> l(mutex_);
         size_t recordByteSize = sizeof(float)*recordSize_;
-        auto totalRecords = streamSize_ / recordByteSize;
+        auto totalRecords = (streamSize_ - skip_offset_) / recordByteSize;
         recordCount_ = totalRecords / nsplit_;
         int recordCount = recordCount_;
-        stream_->Seek(recordCount * recordByteSize * rank_);
+        stream_->Seek(recordCount * recordByteSize * rank_ + skip_offset_);
         if (rank_ == nsplit_ - 1 && totalRecords % nsplit_ != 0) {
             recordCount += totalRecords % nsplit_;
         }
@@ -83,7 +85,7 @@ private:
         LG << "record count = " << recordCount;
         LG << "Nsplit = " << nsplit_;
         LG << "rank = " << rank_;
-        LG << "Seeking offset = " << (recordCount * recordByteSize * rank_);
+        LG << "Seeking offset = " << (recordCount * recordByteSize * rank_ + skip_offset_);
         while (!exit_) {
             eof_ = false;
             reset_ = false;
@@ -116,9 +118,10 @@ private:
     std::condition_variable condReady_;
     std::condition_variable condEmpty_;
     std::vector<float> buffer_;
-    bool reset_;
-    bool eof_;
-    bool exit_;
+    bool    reset_;
+    bool    eof_;
+    bool    exit_;
+    size_t  skip_offset_;
 
     const size_t streamSize_;
     const int recordSize_;

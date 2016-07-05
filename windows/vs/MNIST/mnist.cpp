@@ -63,18 +63,16 @@ Mnist::Mnist()
     return lenet;
 }
 
-/* virtual */ double Mnist::Accuracy(const mxnet::cpp::NDArray &result, const mxnet::cpp::NDArray &labels)
+/* virtual */ size_t Mnist::CorrectCount(const mxnet::cpp::NDArray &result, const mxnet::cpp::NDArray &labels, size_t sample_count)
 {    
-    // For Softmax output
-    
+    // For Softmax output    
     result.WaitToRead();
-    int cat_num = result.GetShape()[1];
-    int sample_num = result.GetShape()[0];
-    int nCorrect = 0;
+    int cat_num = result.GetShape()[1];    
+    size_t nCorrect = 0;
             
     const mx_float *pResult = result.GetData();
     const mx_float *pLabel = labels.GetData();
-    for (int i = 0; i < sample_num; ++i)
+    for (int i = 0; i < sample_count; ++i)
     {
         float label = pLabel[i];        
         float p_label = 0, max_p = pResult[i * cat_num];
@@ -90,7 +88,35 @@ Mnist::Mnist()
         if (abs(label - p_label) < FLT_EPSILON) nCorrect++;
     }    
  
-    return nCorrect * 1.0 / sample_num;
+    return nCorrect;
+}
+
+/* virtual */ void Mnist::PrintResult(dmlc::Stream *stream, const mxnet::cpp::NDArray &result, size_t sample_count)
+{
+    // For Softmax    
+    result.WaitToRead();
+    int cat_num = result.GetShape()[1];    
+    mx_float *temp_store = (mx_float *)malloc(sample_count * sizeof(mx_float));
+
+    const mx_float *pResult = result.GetData();    
+    for (int i = 0; i < sample_count; ++i)
+    {        
+        float p_label = 0, max_p = pResult[i * cat_num];
+        for (int j = 0; j < cat_num; ++j)
+        {
+            float p = pResult[i * cat_num + j];
+            if (max_p < p)
+            {
+                p_label = j;
+                max_p = p;
+            }
+        }
+        
+        temp_store[i] = p_label;
+    }
+
+    stream->Write(temp_store, sample_count);    
+    free(temp_store);
 }
 
 
@@ -172,8 +198,9 @@ Mnist::Mnist()
     // Start Training
     for (int current_epoch = 0; current_epoch < epoch_count_; ++current_epoch)
     {
-        DataReader *dataReader = get_file_reader(input_image_data, batch_size_, 28 * 28, kv_store->GetRank(), kv_store->GetNumWorkers());
-        DataReader *labelReader = get_file_reader(input_label_data, batch_size_, 1, kv_store->GetRank(), kv_store->GetNumWorkers());
+        // Skip Header Information for mnist dataset.
+        auto dataReader = get_file_reader(input_image_data, batch_size_, 28 * 28, kv_store->GetRank(), kv_store->GetNumWorkers(), sizeof(uint32_t) * 4);
+        auto labelReader = get_file_reader(input_label_data, batch_size_, 1, kv_store->GetRank(), kv_store->GetNumWorkers(), sizeof(uint32_t) * 2);
 
         size_t processed_sample_count = 0;
         
@@ -216,8 +243,9 @@ Mnist::Mnist()
             auto cur_time = std::chrono::system_clock::now();
             auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time);
                         
+            auto count = CorrectCount(exe->outputs[0], args_map["Label"], readed_sample_count);
             LG << "Iter " << current_epoch
-                << ", accuracy: " << Accuracy(exe->outputs[0], args_map["Label"]) * 100 << "%"
+                << ", accuracy: " << count * 100.0 / readed_sample_count << "%"
                 << "\tsample/s: " << processed_sample_count * 1000.0 / elapse_in_ms.count()
                 << "\tProgress: [" << processed_sample_count * 100.0 / epoch_count_ / dataReader->recordCount() << "%]";            
         }
@@ -247,7 +275,114 @@ Mnist::Mnist()
 }
 
 
+/* virtual */ void Mnist::Predict(KVStore *kv_store, bool is_validation)
+{
+    string input_image_data = chana_config_get_value_string(mxnet_section.c_str(), "image_data", "", "");
+    CHECK(!input_image_data.empty());
+    
+    string input_label_data = chana_config_get_value_string(mxnet_section.c_str(), "label_data", "", "");
+    if (is_validation) CHECK(!input_label_data.empty());
 
+    // You can choice a suitable batch size for prediction.
+    batch_size_ = 8 * 1024 * 1024 / image_size_;
+
+    auto lenet = BuildNetwork();    
+    auto exe = lenet.SimpleBind(ctx_dev, args_map);
+
+    auto start_time = std::chrono::system_clock::now();
+
+    vector<NDArray> parameters;
+    vector<NDArray> gradients;
+
+    {
+        auto arguments = lenet.ListArguments();
+        for (size_t idx = 0; idx < arguments.size(); ++idx)
+        {
+            auto &name = arguments[idx];
+            if (name != "Data" && name != "Label")
+            {
+                parameters.push_back(exe->arg_arrays[idx]);
+                gradients.push_back(exe->grad_arrays[idx]);
+            }
+        }
+    }
+
+    string input_model_file = chana_config_get_value_string(mxnet_section.c_str(), "input_model", "", "");
+    CHECK(!input_model_file.empty());    
+    LoadModel(input_model_file, parameters);    
+
+    string output_label_file = chana_config_get_value_string(mxnet_section.c_str(), "output_label", "", "");
+    dmlc::Stream *output_stream = nullptr;
+    if (!output_label_file.empty())
+    {
+        LG << "Save predicting result at [" << output_label_file << "]";
+        output_stream = dmlc::Stream::Create(output_label_file.c_str(), "w", true);
+    }
+
+    // Start Prediction    
+    auto data_reader = get_file_reader(input_image_data, batch_size_, 28 * 28, kv_store->GetRank(), kv_store->GetNumWorkers(), sizeof(uint32_t) * 4);
+    DataReader *label_reader = nullptr;
+    if (is_validation)
+    {
+        label_reader = get_file_reader(input_label_data, batch_size_, 1, kv_store->GetRank(), kv_store->GetNumWorkers(), sizeof(uint32_t) * 2);
+    }
+
+    size_t processed_sample_count = 0;
+    size_t correct_count = 0;
+    while (!data_reader->Eof())
+    {
+        auto data = data_reader->ReadBatch();
+        size_t readed_sample_count = data.size() / image_size_;
+        args_map["Data"].SyncCopyFromCPU(data.data(), batch_size_ * image_size_);
+            
+        std::vector<float> label;
+        if (is_validation)
+        {
+            label = label_reader->ReadBatch();
+            CHECK_EQ(readed_sample_count, label.size());
+            args_map["Label"].SyncCopyFromCPU(label.data(), batch_size_);
+        }
+        NDArray::WaitAll();
+
+        exe->Forward(false);
+
+        if (nullptr != output_stream) PrintResult(output_stream, exe->outputs[0], readed_sample_count);
+                    
+        processed_sample_count += readed_sample_count;
+        auto cur_time = std::chrono::system_clock::now();
+        auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time);
+
+        if (is_validation)
+        {
+            auto count = CorrectCount(exe->outputs[0], args_map["Label"], readed_sample_count);
+            correct_count += count;
+            LG << "Accuracy: " << count * 100.0 / readed_sample_count << "%";
+        }
+        LG << "Sample/s: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() << "]"
+            << "\tProgress: [" << processed_sample_count * 100.0 / data_reader->recordCount() << "%]";
+    }
+
+    delete data_reader;
+    if (label_reader != nullptr) delete label_reader;
+    if (nullptr != output_stream)
+    {
+        delete output_stream;
+    }
+        
+    kv_store->Barrier();
+
+    auto cur_time = std::chrono::system_clock::now();
+    auto elapse_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time);
+    LG << "Total Sample: [" << processed_sample_count << "]"
+        << "\tSpeed: [" << processed_sample_count * 1000.0 / elapse_in_ms.count() << "/s]"
+        << "\tTime: [" << elapse_in_ms.count() / 1000.0 << "s]";
+    if (is_validation)
+    {
+        LG << "Final Accuracy : [" << correct_count * 100.0 / processed_sample_count << "%]";
+    }
+
+    delete exe;
+}
 
 
 int main(int argc, const char *argv[])
