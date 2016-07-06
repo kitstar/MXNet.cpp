@@ -16,8 +16,11 @@ Mnist::Mnist()
 
 /* virtual */ Symbol Mnist::BuildNetwork()
 {
+    // Lenet
+    
     auto data = Symbol::Variable("Data");
     args_map["Data"] = NDArray(Shape(batch_size_, 1, 28, 28), ctx_cpu, false);    
+    grad_type_map["Data"] = kNullOp;
     
     // first conv    
     auto conv1_w = Symbol::Variable("conv1 weight");    
@@ -46,7 +49,8 @@ Mnist::Mnist()
     auto fc2 = FullyConnected("FC2", tanh3, fc2_w, fc2_b, 10);        
     
     // loss
-    auto label = Symbol::Variable("Label");    
+    auto label = Symbol::Variable("Label");
+    grad_type_map["Label"] = kNullOp;
     auto lenet = SoftmaxOutput("Lenet output", fc2, label);
     lenet.InferArgsMap(ctx_dev, &args_map, args_map);
 
@@ -118,7 +122,8 @@ Mnist::Mnist()
     auto lenet = BuildNetwork();
 
     // Simple Bind will initialize the parameter with SampleGaussian(0, 1)
-    auto exe = lenet.SimpleBind(ctx_dev, args_map);
+    std::map<string, NDArray> grad_map;
+    auto exe = lenet.SimpleBind(ctx_dev, args_map, grad_map, grad_type_map);
 
     auto start_time = std::chrono::system_clock::now();
     
@@ -134,8 +139,7 @@ Mnist::Mnist()
             {
                 parameters.push_back(exe->arg_arrays[idx]);
                 gradients.push_back(exe->grad_arrays[idx]);
-            }
-            else exe->
+            }            
         }
     }
 

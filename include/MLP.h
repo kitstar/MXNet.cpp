@@ -95,10 +95,6 @@ protected:
     
     virtual bool LoadModel(const std::string &model_name, std::vector<mxnet::cpp::NDArray> &parameters);
 
-    virtual double ValAccuracy(mxnet::cpp::Symbol mlp,
-        const mxnet::cpp::NDArray& samples,
-        const mxnet::cpp::NDArray& labels);
-
     virtual double Accuracy(const mxnet::cpp::NDArray& result, const mxnet::cpp::NDArray& labels);  
 
 
@@ -114,6 +110,7 @@ protected:
     mxnet::cpp::Context ctx_dev;        
         
     std::map<std::string, mxnet::cpp::NDArray> args_map;
+    std::map<std::string, mxnet::cpp::OpReqType> grad_type_map;
 
     int batch_size_;
     int sample_size;

@@ -136,7 +136,6 @@ void merge_files(std::string final_name, int count)
     return ret;
 }
 
-
 Mlp::Mlp() : ctx_cpu(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
     ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
     running_mode_(sync_mode_t::Local), running_op_(RunningMethods::kInvalid)
@@ -226,42 +225,4 @@ double Mlp::Accuracy(const NDArray& result, const NDArray& labels)
         if (label == (p_label >= 0.5)) nCorrect++;
     }
     return nCorrect * 1.0 / sample_count;
-}
-
-double Mlp::ValAccuracy(Symbol mlp,
-    const NDArray& samples,
-    const NDArray& labels)
-{    
-    /*
-    size_t nSamples = samples.GetShape()[0];
-    size_t nCorrect = 0;
-    size_t startIndex = 0;
-    args_map["data"] = samples;
-    args_map["label"] = labels;
-
-    Executor *exe = mlp.SimpleBind(ctx_dev, args_map);
-    exe->Forward(false);
-    const auto &out = exe->outputs;
-    NDArray result = out[0].Copy(ctx_cpu);
-    result.WaitToRead();
-    const mx_float *pResult = result.GetData();
-    const mx_float *pLabel = labels.GetData();
-    for (int i = 0; i < nSamples; ++i) {
-        float label = pLabel[i];
-        int cat_num = result.GetShape()[1];
-        float p_label = 0, max_p = pResult[i * cat_num];
-        for (int j = 0; j < cat_num; ++j) {
-            float p = pResult[i * cat_num + j];
-            if (max_p < p) {
-                p_label = j;
-                max_p = p;
-            }
-        }
-        if (label == p_label) nCorrect++;
-    }
-    delete exe;
-
-    return nCorrect * 1.0 / nSamples;
-    */
-    return 0;
 }
