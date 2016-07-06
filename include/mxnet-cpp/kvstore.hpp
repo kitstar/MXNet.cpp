@@ -54,7 +54,7 @@ KVStore::KVStore(const std::string& name) {
   CHECK_EQ(MXKVStoreCreate(name.c_str(), &handle_), 0);
 }
 
-KVStore::KVStore(bool async, const std::string& machine_list_path, int server_count)
+KVStore::KVStore(bool async, const std::string& machine_list_path, int server_count) {
   std::string name = async ? "dist_async" : "dist_sync";
   name += "#" + machine_list_path;
   name += "#" + std::to_string(server_count);
