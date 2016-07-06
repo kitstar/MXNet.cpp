@@ -63,6 +63,7 @@ Mnist::Mnist()
     return lenet;
 }
 
+
 /* virtual */ size_t Mnist::CorrectCount(const mxnet::cpp::NDArray &result, const mxnet::cpp::NDArray &labels, size_t sample_count)
 {    
     // For Softmax output    
@@ -74,18 +75,8 @@ Mnist::Mnist()
     const mx_float *pLabel = labels.GetData();
     for (int i = 0; i < sample_count; ++i)
     {
-        float label = pLabel[i];        
-        float p_label = 0, max_p = pResult[i * cat_num];
-        for (int j = 0; j < cat_num; ++j) 
-        {
-            float p = pResult[i * cat_num + j];
-            if (max_p < p) 
-            {
-                p_label = j;
-                max_p = p;
-            }
-        }
-        if (abs(label - p_label) < FLT_EPSILON) nCorrect++;
+        auto prediction_label = GetSoftmaxResult(pResult + i * cat_num, cat_num);
+        if (abs(pLabel[i] - prediction_label) < FLT_EPSILON) nCorrect++;
     }    
  
     return nCorrect;
@@ -100,22 +91,9 @@ Mnist::Mnist()
 
     const mx_float *pResult = result.GetData();    
     for (int i = 0; i < sample_count; ++i)
-    {        
-        float p_label = 0, max_p = pResult[i * cat_num];
-        for (int j = 0; j < cat_num; ++j)
-        {
-            float p = pResult[i * cat_num + j];
-            if (max_p < p)
-            {
-                p_label = j;
-                max_p = p;
-            }
-        }
-        
-        temp_store[i] = p_label;
-    }
+        temp_store[i] = GetSoftmaxResult(pResult + i * cat_num, cat_num);
 
-    stream->Write(temp_store, sample_count);    
+    stream->Write(temp_store, sample_count * sizeof(mx_float));
     free(temp_store);
 }
 
@@ -157,6 +135,7 @@ Mnist::Mnist()
                 parameters.push_back(exe->arg_arrays[idx]);
                 gradients.push_back(exe->grad_arrays[idx]);
             }
+            else exe->
         }
     }
 

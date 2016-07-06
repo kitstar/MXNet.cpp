@@ -70,7 +70,9 @@ public:
 
     static std::string generate_kvstore_args(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);
 
-    static mxnet::cpp::KVStore * InitializeKvstore(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);    
+    static mxnet::cpp::KVStore * InitializeKvstore(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);
+
+    static mx_float GetSoftmaxResult(const mx_float *prediction, int cat_num);
 
 protected:    
     virtual void load_model(std::string model_name) = 0;

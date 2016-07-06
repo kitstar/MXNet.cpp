@@ -122,6 +122,20 @@ void merge_files(std::string final_name, int count)
     return nullptr;
 }
 
+/* static */ mx_float Mlp::GetSoftmaxResult(const mx_float *prediction, int cat_num)
+{
+    mx_float ret = 0;
+    mx_float max_p = prediction[0];        
+    for (int i = 1; i < cat_num; ++i)    
+        if (max_p < prediction[i])
+        {
+            ret = i;
+            max_p = prediction[i];
+        }
+    
+    return ret;
+}
+
 
 Mlp::Mlp() : ctx_cpu(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
     ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
