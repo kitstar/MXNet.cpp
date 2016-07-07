@@ -3,9 +3,7 @@
  * \file c_api.h
  * \brief C API of mxnet
  */
-#ifndef MXNET_C_API_H_
-#define MXNET_C_API_H_
-
+#pragma once
 #ifdef __cplusplus
 #define MXNET_EXTERN_C extern "C"
 #endif
@@ -1332,5 +1330,3 @@ MXNET_DLL int MXOptimizerUpdate(OptimizerHandle handle,
                                 NDArrayHandle grad,
                                 mx_float lr,
                                 mx_float wd);
-
-#endif  // MXNET_C_API_H_

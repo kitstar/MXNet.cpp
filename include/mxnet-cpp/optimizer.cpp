@@ -4,10 +4,6 @@
 * \brief implementation of optimizer
 * \author Chuntao Hong, Zhang Chen
 */
-
-#ifndef MXNETCPP_OPTIMIZER_HPP
-#define MXNETCPP_OPTIMIZER_HPP
-
 #include <numeric>
 #include <map>
 #include <string>
@@ -51,5 +47,3 @@ std::string Optimizer::Serialize() const {
 }
 }  // namespace cpp
 }  // namespace mxnet
-
-#endif  // MXNETCPP_OPTIMIZER_HPP

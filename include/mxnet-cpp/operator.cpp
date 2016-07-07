@@ -4,10 +4,6 @@
 * \brief implementation of operator
 * \author Chuntao Hong, Zhang Chen
 */
-
-#ifndef MXNETCPP_OPERATOR_HPP
-#define MXNETCPP_OPERATOR_HPP
-
 #include <string>
 #include <vector>
 #include "mxnet-cpp/base.h"
@@ -53,5 +49,3 @@ Operator &Operator::SetInput(const std::string &name, Symbol symbol) {
 }
 }  // namespace cpp
 }  // namespace mxnet
-
-#endif  // MXNETCPP_OPERATOR_HPP

@@ -4,12 +4,10 @@
 * \brief base definitions for mxnetcpp
 * \author Chuntao Hong, Zhang Chen
 */
+# pragma once
 
-#ifndef MXNETCPP_BASE_H
-#define MXNETCPP_BASE_H
-
-#include <cstdlib>
-#include "mxnet-cpp/c_api.h"
+# include <cstdlib>
+# include "mxnet-cpp/c_api.h"
 
 namespace mxnet {
 namespace cpp {
@@ -33,5 +31,3 @@ enum OpReqType {
 
 }  // namespace cpp
 }  // namespace mxnet
-
-#endif  // MXNETCPP_BASE_H

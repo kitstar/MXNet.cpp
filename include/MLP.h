@@ -4,70 +4,109 @@
 * \brief base class of MLP
 * \author Cheng CHEN
 */
-
 # pragma once
-# include "mxnet-cpp/ndarray.h"
-# include "mxnet-cpp/symbol.h"
+
+# include "mxnet-cpp/MxNetCpp.h"
+# include "chana/chana_ps.h"
 # include "data.h"
 
 enum class sync_mode_t
 {
     Invalid = 0,
+    Local,
     Sync,
     Async
 };
 
-void get_file_stream(const std::string &file_name, dmlc::Stream *&stream, size_t *file_size, const char *op);
+enum class RunningMethods
+{
+    kInvalid = 0,
+    kTrain,
+    kPredict,
+    kValidate
+};
 
-DataReader * get_file_reader(const std::string &file_name, int buffer_sample_count, int sample_size, int my_rank, int total_rank);
-
-void merge_files(std::string final_name, int count);
 
 class Mlp
 {
 public:
-    Mlp() : ctx_cpu(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
-        ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0))        
-    { }
-    
+    Mlp();
+
+    virtual void Run(mxnet::cpp::KVStore *kv_store)
+    {
+        LG << "Not implement!";
+        exit(-1);
+    }
+
+    virtual void Train(mxnet::cpp::KVStore *kv_store)
+    {
+        LG << "Not implement!";
+        exit(-1);
+    }
+
+    virtual void Predict(mxnet::cpp::KVStore *kv_store, bool is_validation)
+    {
+        LG << "Not implement!";
+        exit(-1);
+    }
+
     virtual size_t train(std::string file_name, std::string kvstore_args)
     {
         LG << "Not implement!";
         exit(-1);
     }
-    
+
     virtual size_t predict(std::string file_name, std::string model_name, std::string kvstore_args)
     {
         LG << "Not implement!";
         exit(-1);
-    }    
+    }
 
-    static std::string generate_kvstore_args(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);    
+    static std::string generate_kvstore_args(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);
 
-protected:    
+    static mxnet::cpp::KVStore * InitializeKvstore(sync_mode_t mode, std::string machine_list, std::string ps_per_machine);
+
+    static mx_float GetSoftmaxResult(const mx_float *prediction, int cat_num);
+
+protected:
     virtual void load_model(std::string model_name) = 0;
 
     virtual void output_model(std::string model_name) = 0;
 
-    virtual void build_network() = 0;
-    
-    virtual double ValAccuracy(mxnet::cpp::Symbol mlp,
-        const mxnet::cpp::NDArray& samples,
-        const mxnet::cpp::NDArray& labels);
+    virtual void build_network()
+    {
+        LG << "Not implement [build_network]!";
+        exit(-1);
+    }
 
-    virtual double Accuracy(const mxnet::cpp::NDArray& result, const mxnet::cpp::NDArray& labels);  
+    virtual mxnet::cpp::Symbol BuildNetwork()
+    {
+        LG << "Not implement [BuildNetwork]!";
+        exit(-1);
+    }
+
+    virtual bool SaveModel(const std::string &model_name, std::vector<mxnet::cpp::NDArray> &parameters);
+
+    virtual bool LoadModel(const std::string &model_name, std::vector<mxnet::cpp::NDArray> &parameters);
+
+    virtual double Accuracy(const mxnet::cpp::NDArray& result, const mxnet::cpp::NDArray& labels);
 
 
-public:    
-    std::string output_file;
-
+public:
+    std::string     output_file;
+    sync_mode_t     running_mode_;
+    RunningMethods  running_op_;
 
 protected:
+    const std::string mxnet_section = "apps.MXNET";
+
     mxnet::cpp::Context ctx_cpu;
     mxnet::cpp::Context ctx_dev;
-    
-    mxnet::cpp::Symbol mlp;
-    int batchSize;
-    int sampleSize;
-    int epochCount;
+
+    std::map<std::string, mxnet::cpp::NDArray> args_map;
+    std::map<std::string, mxnet::cpp::OpReqType> grad_type_map;
+
+    int batch_size_;
+    int sample_size;
+    int epoch_count_;
 };

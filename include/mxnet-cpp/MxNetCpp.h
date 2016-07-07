@@ -4,19 +4,12 @@
  * \brief meta include file for mxnet.cpp
  * \author Chuntao Hong, Zhang Chen
  */
-
-#ifndef MXNETCPP_H_
-#define MXNETCPP_H_
-
-#include "mxnet-cpp/executor.hpp"
-#include "mxnet-cpp/symbol.hpp"
-#include "mxnet-cpp/ndarray.hpp"
-#include "mxnet-cpp/operator.hpp"
-#include "mxnet-cpp/optimizer.hpp"
-#include "mxnet-cpp/kvstore.hpp"
-#include "mxnet-cpp/op.h"
-#include "mxnet-cpp/op_suppl.h"
-#include "mxnet-cpp/io.hpp"
-#include "mxnet-cpp/metric.h"
-
-#endif  // MXNETCPP_H_
+# pragma once
+# include "mxnet-cpp/executor.h"
+# include "mxnet-cpp/symbol.h"
+# include "mxnet-cpp/ndarray.h"
+# include "mxnet-cpp/operator.h"
+# include "mxnet-cpp/optimizer.h"
+# include "mxnet-cpp/kvstore.h"
+# include "mxnet-cpp/op.h"
+# include "mxnet-cpp/op_suppl.h"
