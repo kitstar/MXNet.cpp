@@ -55,7 +55,6 @@ Mnist::Mnist()
     auto lenet = SoftmaxOutput("Lenet output", fc2, label);
     lenet.InferArgsMap(ctx_dev, &args_map, args_map);
 
-# if !defined(NDEBUG)
     for (auto &s : lenet.ListArguments())
     {
         auto &e = args_map[s];
@@ -64,7 +63,7 @@ Mnist::Mnist()
             cout << " * " << e.GetShape().at(it);
         cout << endl;
     }
-# endif
+
     return lenet;
 }
 
