@@ -1,4 +1,5 @@
 # include "MLP.h"
+# include <unordered_set>
 # include "util.h"
 
 using namespace std;
@@ -71,9 +72,48 @@ using namespace mxnet::cpp;
             ret = i;
             max_p = prediction[i];
         }
-
     return ret;
 }
+
+
+/* static */ size_t Mlp::BuildVocabulary(const std::string &vocab_file, const std::string &corpus_file, std::unordered_map<std::string, uint32_t> &vocab_map)
+{
+    string s;
+    size_t idx = 0;
+    
+    ifstream fin(vocab_file.c_str());    
+    if (fin.good())
+    {
+        
+        while (getline(fin, s))
+        {
+            vocab_map[s] = idx++;
+        }
+        fin.close();
+        return idx;
+    }
+    else
+    {
+        fin.close();
+        fin.clear();
+        unordered_map<string, bool> word_set;
+
+        fin.open(corpus_file.c_str());
+        while (fin >> s)
+        {
+            word_set[s] = true;
+        }
+        fin.close();
+
+        ofstream fout(vocab_file.c_str());
+        for (auto &e : word_set)
+        {
+            fout << e.first << endl;
+        }
+        fout.close();
+    }
+}
+
 
 Mlp::Mlp() : ctx_cpu(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),
 ctx_dev(mxnet::cpp::Context(mxnet::cpp::DeviceType::kCPU, 0)),

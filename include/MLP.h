@@ -6,6 +6,7 @@
 */
 # pragma once
 
+# include <unordered_map>
 # include "mxnet-cpp/MxNetCpp.h"
 # include "chana/chana_ps.h"
 # include "data.h"
@@ -68,17 +69,9 @@ public:
 
     static mx_float GetSoftmaxResult(const mx_float *prediction, int cat_num);
 
+    static size_t BuildVocabulary(const std::string &vocab_file, const std::string &corpus_file, std::unordered_map<std::string, uint32_t> &vocab_map);
+
 protected:
-    virtual void load_model(std::string model_name) = 0;
-
-    virtual void output_model(std::string model_name) = 0;
-
-    virtual void build_network()
-    {
-        LG << "Not implement [build_network]!";
-        exit(-1);
-    }
-
     virtual mxnet::cpp::Symbol BuildNetwork()
     {
         LG << "Not implement [BuildNetwork]!";

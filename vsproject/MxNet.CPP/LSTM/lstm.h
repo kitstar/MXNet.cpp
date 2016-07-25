@@ -2,10 +2,11 @@
 
 # include "MLP.h"
 
-class Mnist : public Mlp
+
+class LSTM : public Mlp
 {
 public:
-    Mnist();
+    LSTM();
 
     virtual void Run(mxnet::cpp::KVStore *kv_store)
     {
@@ -30,18 +31,27 @@ public:
 
     virtual void Train(mxnet::cpp::KVStore *kv_store);
 
-    virtual void Predict(mxnet::cpp::KVStore *kv_store, bool is_validation);
+    virtual void Predict(mxnet::cpp::KVStore *kv_store, bool is_validation)
+    {
+    }
 
-    virtual void PrintResult(dmlc::Stream *stream, const mxnet::cpp::NDArray &result, size_t sample_count);
+    virtual void PrintResult(dmlc::Stream *stream, const mxnet::cpp::NDArray &result, size_t sample_count)
+    {
+
+    }
 
 protected:
-    virtual size_t CorrectCount(const mxnet::cpp::NDArray &result, const mxnet::cpp::NDArray &labels, size_t sample_count);
-
-    virtual mxnet::cpp::Symbol BuildNetwork();    
+    virtual mxnet::cpp::Symbol BuildNetwork();
 
 
 protected:
-    float learning_rate_;
-    float weight_decay_;
-    int image_size_;
+    std::unordered_map<std::string, uint32_t> vocab_map;
+    
+    double  learning_rate_;
+    double  weight_decay_;
+    int     sentence_length_;
+
+    int     embedding_size_;
+    int     num_lstm_layer_;
+    int     num_hidden_;
 };
