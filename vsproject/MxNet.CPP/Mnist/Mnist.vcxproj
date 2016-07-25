@@ -137,6 +137,9 @@
   <ItemGroup>
     <ClCompile Include="mnist.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="mnist.config.ini" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
