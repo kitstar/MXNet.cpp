@@ -69,7 +69,7 @@ public:
 
     static mx_float GetSoftmaxResult(const mx_float *prediction, int cat_num);
 
-    static size_t BuildVocabulary(const std::string &vocab_file, const std::string &corpus_file, std::unordered_map<std::string, uint32_t> &vocab_map);
+    static size_t BuildVocabulary(const std::string &vocab_file, const std::string &corpus_file, std::unordered_map<std::string, uint32_t> &vocab_map, const std::string &unknown_token);
 
 protected:
     virtual mxnet::cpp::Symbol BuildNetwork()

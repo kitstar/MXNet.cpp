@@ -3,6 +3,7 @@
 # include "util.h"
 
 using namespace std;
+using namespace mxnet::cpp;
 
 int main(int argc, const char *argv[])
 {
@@ -24,14 +25,12 @@ int main(int argc, const char *argv[])
         chana_initialize(2, temp_argv);
     }
 
-    /*
-    Mnist mnist;
+    LSTM ptb;
     KVStore *kv_store = nullptr;
-    if (argc > 2) kv_store = Mlp::InitializeKvstore(mnist.running_mode_, argv[1], argv[2]);
-    else kv_store = Mlp::InitializeKvstore(mnist.running_mode_, "", "");
+    if (argc > 2) kv_store = Mlp::InitializeKvstore(ptb.running_mode_, argv[1], argv[2]);
+    else kv_store = Mlp::InitializeKvstore(ptb.running_mode_, "", "");
 
-    mnist.Run(kv_store);
-    */
+    ptb.Run(kv_store);
 
     return 0;
 }

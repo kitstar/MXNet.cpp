@@ -76,42 +76,51 @@ using namespace mxnet::cpp;
 }
 
 
-/* static */ size_t Mlp::BuildVocabulary(const std::string &vocab_file, const std::string &corpus_file, std::unordered_map<std::string, uint32_t> &vocab_map)
+/* static */ size_t Mlp::BuildVocabulary(
+    const std::string &vocab_file, 
+    const std::string &corpus_file, 
+    std::unordered_map<std::string, uint32_t> &vocab_map,
+    const std::string &unknown_token)
 {
     string s;
     size_t idx = 0;
     
     ifstream fin(vocab_file.c_str());    
-    if (fin.good())
+    if (!fin.good())
     {
-        
-        while (getline(fin, s))
-        {
-            vocab_map[s] = idx++;
-        }
-        fin.close();
-        return idx;
-    }
-    else
-    {
+        LG << "Building vocabulary file [" << vocab_file << "] from corups file [" << corpus_file << "].";
         fin.close();
         fin.clear();
-        unordered_map<string, bool> word_set;
+        set<string> word_set;
 
         fin.open(corpus_file.c_str());
         while (fin >> s)
         {
-            word_set[s] = true;
+            word_set.insert(s);
         }
         fin.close();
 
+        word_set.erase(unknown_token);
         ofstream fout(vocab_file.c_str());
+        fout << unknown_token << endl << "PADDING_TOKEN" << endl;
         for (auto &e : word_set)
         {
-            fout << e.first << endl;
+            fout << e << endl;
         }
+        fout << "<eos>" << endl;
         fout.close();
+
+        fin.open(vocab_file.c_str());
     }
+
+    while (getline(fin, s))
+    {
+        vocab_map[s] = idx++;
+    }
+    fin.close();
+
+    LG << "Loaded [" << idx << "] words from vocabulary file [" << vocab_file << "]";
+    return idx;
 }
 
 
