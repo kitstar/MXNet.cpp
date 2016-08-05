@@ -42,6 +42,24 @@ namespace cpp {
         MXNDArraySyncCopyFromCPU(handle, data, size);
         blob_ptr_ = std::make_shared<NDBlob>(handle);
     }
+    NDArray::NDArray(const mx_float *data, const Shape &shape,
+        const Context &context) {
+        NDArrayHandle handle;
+        CHECK_EQ(MXNDArrayCreate(shape.data(), shape.ndim(), context.GetDeviceType(),
+            context.GetDeviceId(), false, &handle),
+            0);
+        MXNDArraySyncCopyFromCPU(handle, data, shape.Size());
+        blob_ptr_ = std::make_shared<NDBlob>(handle);
+    }
+    NDArray::NDArray(const std::vector<mx_float> &data, const Shape &shape,
+        const Context &context) {
+        NDArrayHandle handle;
+        CHECK_EQ(MXNDArrayCreate(shape.data(), shape.ndim(), context.GetDeviceType(),
+            context.GetDeviceId(), false, &handle),
+            0);
+        MXNDArraySyncCopyFromCPU(handle, data.data(), shape.Size());
+        blob_ptr_ = std::make_shared<NDBlob>(handle);
+    }
     NDArray::NDArray(const std::vector<mx_float> &data) {
         NDArrayHandle handle;
         CHECK_EQ(MXNDArrayCreateNone(&handle), 0);
@@ -212,6 +230,16 @@ namespace cpp {
         return *this;
     }
 
+    NDArray NDArray::ArgmaxChannel() {
+        NDArray ret;
+        static FunctionHandle func_handle;
+        MXGetFunction("argmax_channel", &func_handle);
+        CHECK_EQ(MXFuncInvoke(func_handle, &blob_ptr_->handle_, nullptr,
+            &ret.blob_ptr_->handle_),
+            0);
+        return ret;
+    }
+
     void NDArray::SyncCopyFromCPU(const mx_float *data, size_t size) {
         MXNDArraySyncCopyFromCPU(blob_ptr_->handle_, data, size);
     }
@@ -219,7 +247,12 @@ namespace cpp {
         MXNDArraySyncCopyFromCPU(blob_ptr_->handle_, data.data(), data.size());
     }
     void NDArray::SyncCopyToCPU(mx_float *data, size_t size) {
-        MXNDArraySyncCopyToCPU(blob_ptr_->handle_, data, size);
+        MXNDArraySyncCopyToCPU(blob_ptr_->handle_, data, size > 0 ? size : Size());
+    }
+    void NDArray::SyncCopyToCPU(std::vector<mx_float> *data, size_t size) {
+        size = size > 0 ? size : Size();
+        data->resize(size);
+        MXNDArraySyncCopyToCPU(blob_ptr_->handle_, data->data(), size);
     }
     NDArray NDArray::Copy(const Context &ctx) const {
         NDArray ret(GetShape(), ctx);
@@ -230,13 +263,22 @@ namespace cpp {
             0);
         return ret;
     }
-
     NDArray NDArray::Slice(mx_uint begin, mx_uint end) const {
         NDArrayHandle handle;
         CHECK_EQ(MXNDArraySlice(GetHandle(), begin, end, &handle), 0);
         return NDArray(handle);
     }
-
+    NDArray NDArray::Reshape(const Shape &new_shape) const {
+        NDArrayHandle handle;
+        std::vector<int> dims(new_shape.ndim());
+        for (index_t i = 0; i < new_shape.ndim(); ++i) {
+            dims[i] = new_shape[i];
+        }
+        new_shape.data();
+        CHECK_EQ(
+            MXNDArrayReshape(GetHandle(), new_shape.ndim(), dims.data(), &handle), 0);
+        return NDArray(handle);
+    }
     void NDArray::WaitToRead() const {
         CHECK_EQ(MXNDArrayWaitToRead(blob_ptr_->handle_), 0);
     }
@@ -348,6 +390,12 @@ namespace cpp {
         return GetData()[Offset(c, h, w)];
     }
 
+    size_t NDArray::Size() const {
+        size_t ret = 1;
+        for (auto &i : GetShape()) ret *= i;
+        return ret;
+    }
+
     std::vector<mx_uint> NDArray::GetShape() const {
         const mx_uint *out_pdata;
         mx_uint out_dim;
@@ -358,8 +406,10 @@ namespace cpp {
         }
         return ret;
     }
+
     const mx_float *NDArray::GetData() const {
         mx_float *ret;
+        CHECK_NE(GetContext().GetDeviceType(), DeviceType::kGPU);
         MXNDArrayGetData(blob_ptr_->handle_, &ret);
         return ret;
     }

@@ -20,35 +20,28 @@ namespace cpp {
     Symbol::Symbol(SymbolHandle handle) {
         blob_ptr_ = std::make_shared<SymBlob>(handle);
     }
-    Symbol::Symbol(const std::string &name) {
+    Symbol::Symbol(const char *name) {
         SymbolHandle handle;
-        CHECK_EQ(MXSymbolCreateVariable(name.c_str(), &(handle)), 0);
+        CHECK_EQ(MXSymbolCreateVariable(name, &(handle)), 0);
         blob_ptr_ = std::make_shared<SymBlob>(handle);
     }
+    Symbol::Symbol(const std::string &name) : Symbol(name.c_str()) {}
     Symbol Symbol::Variable(const std::string &name) { return Symbol(name); }
-    Symbol Symbol::operator+(const Symbol &rhs) {
-        return _Plus(*this, rhs);
+    Symbol Symbol::operator+(const Symbol &rhs) const { return _Plus(*this, rhs); }
+    Symbol Symbol::operator-(const Symbol &rhs) const { return _Minus(*this, rhs); }
+    Symbol Symbol::operator*(const Symbol &rhs) const { return _Mul(*this, rhs); }
+    Symbol Symbol::operator/(const Symbol &rhs) const { return _Div(*this, rhs); }
+    Symbol Symbol::operator+(mx_float scalar) const {
+        return _PlusScalar(*this, scalar);
     }
-    Symbol Symbol::operator-(const Symbol &rhs) {
-        return _Minus(*this, rhs);
+    Symbol Symbol::operator-(mx_float scalar) const {
+        return _MinusScalar(*this, scalar);
     }
-    Symbol Symbol::operator*(const Symbol &rhs) {
-        return _Mul(*this, rhs);
+    Symbol Symbol::operator*(mx_float scalar) const {
+        return _MulScalar(*this, scalar);
     }
-    Symbol Symbol::operator/(const Symbol &rhs) {
-        return _Div(*this, rhs);
-    }
-    Symbol Symbol::operator+(mx_float scalar) {
-        return _PlusScalar(*this, scalar, false);
-    }
-    Symbol Symbol::operator-(mx_float scalar) {
-        return _MinusScalar(*this, scalar, false);
-    }
-    Symbol Symbol::operator*(mx_float scalar) {
-        return _MulScalar(*this, scalar, false);
-    }
-    Symbol Symbol::operator/(mx_float scalar) {
-        return _DivScalar(*this, scalar, false);
+    Symbol Symbol::operator/(mx_float scalar) const {
+        return _DivScalar(*this, scalar);
     }
     Symbol Symbol::operator[](int index) {
         SymbolHandle out;
@@ -324,9 +317,19 @@ namespace cpp {
         const std::vector<NDArray> &arg_arrays,
         const std::vector<NDArray> &grad_arrays,
         const std::vector<OpReqType> &grad_reqs,
-        const std::vector<NDArray> &aux_arrays) {
+        const std::vector<NDArray> &aux_arrays,
+        const std::map<std::string, Context> &group_to_ctx,
+        Executor *shared_exec) {
         return new Executor(*this, context, arg_arrays, grad_arrays, grad_reqs,
-            aux_arrays);
+            aux_arrays, group_to_ctx, shared_exec);
+    }
+    Symbol operator+(mx_float lhs, const Symbol &rhs) { return rhs + lhs; }
+    Symbol operator-(mx_float lhs, const Symbol &rhs) {
+        return mxnet::cpp::_RMinusScalar(lhs, rhs);
+    }
+    Symbol operator*(mx_float lhs, const Symbol &rhs) { return rhs * lhs; }
+    Symbol operator/(mx_float lhs, const Symbol &rhs) {
+        return mxnet::cpp::_RDivScalar(lhs, rhs);
     }
 }  // namespace cpp
 }  // namespace mxnet
