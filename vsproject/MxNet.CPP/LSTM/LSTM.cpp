@@ -73,7 +73,8 @@ Symbol LSTM::BuildNetwork()
     for (int layer = 0; layer < num_lstm_layer_; ++layer)
     {        
         current_state.push_back(LstmState("init h (l" + to_string(layer) + ")", "init c (l" + to_string(layer) + ")"));
-        // args_map["init h(l" + to_string(layer) + ")"] = NDArray(Shape(batch_size_, num_steps_), ctx_cpu, false);
+        args_map["init h (l" + to_string(layer) + ")"] = NDArray(Shape(batch_size_, hidden_size_), ctx_cpu, false);
+        args_map["init c (l" + to_string(layer) + ")"] = NDArray(Shape(batch_size_, hidden_size_), ctx_cpu, false);
         cell_param.push_back(LstmParam(" (l" + to_string(layer) + ")"));
     }
 
@@ -105,13 +106,11 @@ Symbol LSTM::BuildNetwork()
     auto cls_bias = Symbol::Variable("cls bias");
     auto pred = FullyConnected("predict", hidden_concat, cls_weight, cls_bias, vocab_size_);
     
-    auto label = Symbol::Variable("Label");
-    // transpose("label trans", label, label);
-    // label = Reshape("label reshape", label, Shape(1));
+    auto label = Symbol::Variable("Label");    
 
     auto softmax = SoftmaxOutput("softmax", pred, label);
-
-    auto rnn = current_state[0].c;
+    
+    auto rnn = softmax;
 
     rnn.InferArgsMap(ctx_dev, &args_map, args_map);
     for (auto &s : rnn.ListArguments())
